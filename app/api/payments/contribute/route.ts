@@ -35,6 +35,16 @@ function isContributeRequest(value: unknown): value is ContributeRequest {
     && donorNameValid
 }
 
+function normalizeDonorName(raw: string): string {
+  const normalized = raw.trim().slice(0, 120)
+  if (!normalized) return ''
+  const lower = normalized.toLowerCase()
+  if (lower === 'safepool member' || lower === 'member' || lower === 'anonymous' || lower === 'anon') {
+    return ''
+  }
+  return normalized
+}
+
 interface CreateOneTimeAuthorizationWithQuote extends Record<string, unknown> {
   mode: 'interaction_required'
   quoteId?: string
@@ -90,10 +100,38 @@ export async function POST(req: NextRequest) {
       amount: rawBody.amount,
       currency: rawBody.currency.trim().toUpperCase(),
       is_anonymous: Boolean(rawBody.is_anonymous),
-      donor_name: typeof rawBody.donor_name === 'string' ? rawBody.donor_name.trim().slice(0, 120) : '',
+      donor_name: typeof rawBody.donor_name === 'string' ? normalizeDonorName(rawBody.donor_name) : '',
     }
 
-    const donorName = body.donor_name || 'SafePool Member'
+    const userMetadata = user.user_metadata as { full_name?: unknown; name?: unknown } | null
+    const profileName = typeof userMetadata?.full_name === 'string'
+      ? normalizeDonorName(userMetadata.full_name)
+      : typeof userMetadata?.name === 'string'
+        ? normalizeDonorName(userMetadata.name)
+        : ''
+    const emailFallback = typeof user.email === 'string' && user.email.includes('@')
+      ? normalizeDonorName(user.email.split('@')[0].trim())
+      : ''
+
+    const { data: userRows, error: userRowError } = await admin
+      .from('users')
+      .select('name')
+      .eq('id', user.id)
+      .limit(1)
+
+    if (userRowError) {
+      return NextResponse.json({ error: `Failed to load donor profile name: ${userRowError.message}` }, { status: 500 })
+    }
+
+    const dbProfileName = userRows.length > 0 && typeof userRows[0].name === 'string'
+      ? normalizeDonorName(userRows[0].name)
+      : ''
+
+    const donorName = body.donor_name
+      || profileName
+      || dbProfileName
+      || emailFallback
+      || 'SafePool Member'
 
     if (body.amount <= 0) {
       return NextResponse.json({ error: 'currency and a positive amount are required' }, { status: 400 })
