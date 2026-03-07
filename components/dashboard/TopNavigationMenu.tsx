@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useState, type FormEvent } from 'react'
+import { AmbientLight, Box3, DirectionalLight, Group, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 
 import { Button } from '@/components/ui/button'
@@ -16,6 +18,100 @@ interface TopNavigationMenuProps {
 const itemClass =
   'inline-flex h-9 items-center justify-center rounded-md px-4 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white'
 
+const MINI_GODZILLA_ORIENTATIONS = {
+  front: [0, 0, 0],
+  back: [0, Math.PI, 0],
+  left: [0, -Math.PI / 2, 0],
+  right: [0, Math.PI / 2, 0],
+  top: [-Math.PI / 2, 0, 0],
+  bottom: [Math.PI / 2, 0, 0],
+  sideTiltLeft: [0, 0, Math.PI / 2],
+  sideTiltRight: [0, 0, -Math.PI / 2],
+} as const
+
+const MINI_GODZILLA_DIRECTION: keyof typeof MINI_GODZILLA_ORIENTATIONS = 'right'
+
+function MiniGodzillaBadge() {
+  const [host, setHost] = useState<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!host) return
+
+    const width = 58
+    const height = 58
+    const scene = new Scene()
+    const camera = new PerspectiveCamera(38, width / height, 0.1, 100)
+    camera.position.set(0, 0.45, 2.6)
+
+    const renderer = new WebGLRenderer({ antialias: true, alpha: true })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+    renderer.setSize(width, height)
+    renderer.setClearColor(0x000000, 0)
+    host.appendChild(renderer.domElement)
+
+    const keyLight = new DirectionalLight(0xffffff, 1.4)
+    keyLight.position.set(2.2, 2, 2)
+    scene.add(keyLight)
+
+    const fillLight = new AmbientLight(0xffffff, 0.8)
+    scene.add(fillLight)
+
+    const loader = new GLTFLoader()
+    let model: Group | null = null
+    let rafId = 0
+    let mounted = true
+
+    loader.load(
+      '/godzilla.glb',
+      (gltf) => {
+        if (!mounted) return
+
+        const nextModel = gltf.scene
+        nextModel.updateMatrixWorld(true)
+
+        const box = new Box3().setFromObject(nextModel)
+        const size = new Vector3()
+        box.getSize(size)
+        if (size.y > 0) {
+          const scale = (0.42 / size.y) * 3
+          nextModel.scale.multiplyScalar(scale)
+          nextModel.updateMatrixWorld(true)
+        }
+
+        const [rotX, rotY, rotZ] = MINI_GODZILLA_ORIENTATIONS[MINI_GODZILLA_DIRECTION]
+        nextModel.rotation.set(rotX, rotY, rotZ)
+        model = nextModel
+        scene.add(nextModel)
+      },
+      undefined,
+      () => {}
+    )
+
+    const animate = () => {
+      if (model) {
+        model.rotation.y += 0.02
+      }
+      renderer.render(scene, camera)
+      rafId = window.requestAnimationFrame(animate)
+    }
+
+    rafId = window.requestAnimationFrame(animate)
+
+    return () => {
+      mounted = false
+      window.cancelAnimationFrame(rafId)
+      renderer.dispose()
+      if (renderer.domElement.parentNode) {
+        renderer.domElement.parentNode.removeChild(renderer.domElement)
+      }
+    }
+  }, [host])
+
+  return (
+    <div className="inline-flex h-14 w-14 items-center justify-center" ref={setHost} />
+  )
+}
+
 export default function TopNavigationMenu({ isAuthenticated = false }: TopNavigationMenuProps) {
   const [authed, setAuthed] = useState(isAuthenticated)
   const [error, setError] = useState('')
@@ -27,6 +123,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const [isRecurring, setIsRecurring] = useState(false)
   const [isAnonymous, setIsAnonymous] = useState(false)
   const [donationError, setDonationError] = useState('')
+  const [showMiniGodzilla, setShowMiniGodzilla] = useState(true)
 
   useEffect(() => {
     let mounted = true
@@ -66,6 +163,23 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     return () => {
       mounted = false
       subscription.unsubscribe()
+    }
+  }, [])
+
+  useEffect(() => {
+    const handleGodzillaSpawned = () => {
+      setShowMiniGodzilla(false)
+    }
+
+    const handleGodzillaCleared = () => {
+      setShowMiniGodzilla(true)
+    }
+
+    window.addEventListener('safepool:godzilla-spawned', handleGodzillaSpawned as EventListener)
+    window.addEventListener('safepool:godzilla-cleared', handleGodzillaCleared as EventListener)
+    return () => {
+      window.removeEventListener('safepool:godzilla-spawned', handleGodzillaSpawned as EventListener)
+      window.removeEventListener('safepool:godzilla-cleared', handleGodzillaCleared as EventListener)
     }
   }, [])
 
@@ -140,6 +254,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
             </button>
           ) : (
             <>
+              {showMiniGodzilla && <MiniGodzillaBadge />}
               <button
                 className={`${itemClass} text-white/40 hover:text-white/60`}
                 onClick={() => setShowGovernanceModal(true)}
