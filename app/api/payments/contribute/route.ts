@@ -15,6 +15,19 @@ interface ContributeRequest {
   currency: string
 }
 
+function isContributeRequest(value: unknown): value is ContributeRequest {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as { amount?: unknown; currency?: unknown }
+  return typeof candidate.amount === 'number'
+    && Number.isFinite(candidate.amount)
+    && typeof candidate.currency === 'string'
+    && candidate.currency.trim().length > 0
+    && candidate.currency.trim().length <= 12
+}
+
 interface CreateOneTimeAuthorizationWithQuote extends Record<string, unknown> {
   mode: 'interaction_required'
   quoteId?: string
@@ -62,9 +75,16 @@ export async function POST(req: NextRequest) {
     await syncSupabaseUserToClickHouse(user)
     const admin = createSupabaseAdminClient()
 
-    const body = await req.json() as ContributeRequest
+    const rawBody = await req.json() as unknown
+    if (!isContributeRequest(rawBody)) {
+      return NextResponse.json({ error: 'Invalid request body. Expected amount:number and currency:string' }, { status: 400 })
+    }
+    const body = {
+      amount: rawBody.amount,
+      currency: rawBody.currency.trim().toUpperCase(),
+    }
 
-    if (!body.currency || typeof body.amount !== 'number' || body.amount <= 0) {
+    if (body.amount <= 0) {
       return NextResponse.json({ error: 'currency and a positive amount are required' }, { status: 400 })
     }
 

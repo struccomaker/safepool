@@ -362,7 +362,18 @@ function normalizePrivateKeyEnv(raw: string): string {
 
 function shouldRunDemoMode(): boolean {
   const raw = process.env.DEMO_MODE?.trim().toLowerCase()
-  return raw === 'true' || raw === '1' || raw === 'yes'
+  const enabled = raw === 'true' || raw === '1' || raw === 'yes'
+  if (!enabled) {
+    return false
+  }
+
+  const isProduction = process.env.NODE_ENV === 'production'
+  const allowInProduction = process.env.ALLOW_DEMO_MODE_IN_PRODUCTION?.trim().toLowerCase() === 'true'
+  if (isProduction && !allowInProduction) {
+    throw new Error('DEMO_MODE is disabled in production unless ALLOW_DEMO_MODE_IN_PRODUCTION=true')
+  }
+
+  return true
 }
 
 function toMinorUnits(amount: number, assetScale: number): string {
@@ -762,15 +773,19 @@ export async function pollIncomingPaymentCompletion({
   }
 
   for (let i = 0; i < attempts; i += 1) {
-    const status = await getIncomingPaymentStatus(paymentId)
-    if (status.state === 'completed' && status.receivedAmount >= expectedAmount) {
-      await upsertPaymentStatusCache({
-        paymentId,
-        paymentType: 'incoming',
-        state: 'completed',
-        receivedAmount: status.receivedAmount,
-      })
-      return status
+    try {
+      const status = await getIncomingPaymentStatus(paymentId)
+      if (status.state === 'completed' && status.receivedAmount >= expectedAmount) {
+        await upsertPaymentStatusCache({
+          paymentId,
+          paymentType: 'incoming',
+          state: 'completed',
+          receivedAmount: status.receivedAmount,
+        })
+        return status
+      }
+    } catch (err) {
+      console.error('Incoming payment polling attempt failed', err)
     }
 
     if (i < attempts - 1) {
@@ -973,15 +988,19 @@ export async function pollOutgoingPaymentCompletion({
   }
 
   for (let i = 0; i < attempts; i += 1) {
-    const status = await getOutgoingPaymentStatus(paymentId)
-    if (status.state === 'completed' || status.state === 'failed') {
-      await upsertPaymentStatusCache({
-        paymentId,
-        paymentType: 'outgoing',
-        state: status.state,
-        receivedAmount: status.debitAmount,
-      })
-      return status
+    try {
+      const status = await getOutgoingPaymentStatus(paymentId)
+      if (status.state === 'completed' || status.state === 'failed') {
+        await upsertPaymentStatusCache({
+          paymentId,
+          paymentType: 'outgoing',
+          state: status.state,
+          receivedAmount: status.debitAmount,
+        })
+        return status
+      }
+    } catch (err) {
+      console.error('Outgoing payment polling attempt failed', err)
     }
 
     if (i < attempts - 1) {

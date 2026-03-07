@@ -197,11 +197,15 @@ export async function processPayouts({
   }
 
   if (payoutRows.length > 0) {
-    await client.insert({
-      table: 'payouts',
-      values: payoutRows,
-      format: 'JSONEachRow',
-    })
+    try {
+      await client.insert({
+        table: 'payouts',
+        values: payoutRows,
+        format: 'JSONEachRow',
+      })
+    } catch (mirrorErr) {
+      console.error('Non-blocking ClickHouse payout mirror write failed', mirrorErr)
+    }
   }
 
   return successCount

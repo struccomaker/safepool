@@ -5,7 +5,6 @@ import {
   continueOneTimeContributionAuthorization,
   continueOutgoingPayment,
   continueRecurringContributionGrant,
-  pollIncomingPaymentCompletion,
   pollOutgoingPaymentCompletion,
 } from '@/lib/open-payments'
 import { createSupabaseAdminClient } from '@/lib/supabase/admin'
@@ -174,17 +173,6 @@ async function finalizeOneTimeContribution(contributionId: string): Promise<{
     return { state: 'pending' }
   }
 
-  const paymentStatus = await pollIncomingPaymentCompletion({
-    paymentId: pending.incoming_payment_id,
-    expectedAmount: Number(pending.amount),
-    attempts: 2,
-    intervalMs: 1200,
-  })
-
-  if (paymentStatus.state !== 'completed' || paymentStatus.receivedAmount < Number(pending.amount)) {
-    return { state: 'pending' }
-  }
-
   const contributedAt = new Date().toISOString()
   const { error: contributionUpsertError } = await admin
     .from('contributions')
@@ -278,10 +266,70 @@ export async function GET(req: Request) {
     const sessions = pendingSessions as StoredGrantSession[]
 
     if (sessions.length === 0) {
-      return NextResponse.json({ error: 'No pending payment session found' }, { status: 404 })
+      const { data: latestData, error: latestError } = await admin
+        .from('payment_grant_sessions')
+        .select('id,flow,continue_uri,continue_access_token,finish_nonce,payload_json,status')
+        .eq('flow', flow)
+        .eq('reference_id', referenceId)
+        .order('updated_at', { ascending: false })
+        .limit(1)
+
+      if (latestError) {
+        return NextResponse.json({ error: `Failed to load latest payment session: ${latestError.message}` }, { status: 500 })
+      }
+
+      const latest = (latestData as StoredGrantSession[])[0]
+      if (!latest) {
+        return NextResponse.json({ error: 'No pending payment session found' }, { status: 404 })
+      }
+
+      if (latest.status === 'completed') {
+        if (flow === 'incoming') {
+          const finalization = await finalizeOneTimeContribution(referenceId)
+          if (finalization.state === 'completed') {
+            return redirectTo(req, '/', 'payment_completed', referenceId, {
+              amount: String(finalization.amount ?? ''),
+              currency: finalization.currency ?? '',
+            })
+          }
+          return redirectTo(req, '/', 'interaction_completed', referenceId)
+        }
+
+        if (flow === 'recurring') {
+          return redirectTo(req, '/', 'recurring_active', referenceId)
+        }
+
+        return redirectTo(req, '/', 'completed', referenceId)
+      }
+
+      if (latest.status === 'failed') {
+        return redirectTo(req, '/', 'failed', referenceId)
+      }
+
+      return redirectTo(req, '/', 'interaction_completed', referenceId)
     }
 
     const session = sessions[0]
+
+    const claimToken = `processing:${crypto.randomUUID()}`
+    const { data: claimRows, error: claimError } = await admin
+      .from('payment_grant_sessions')
+      .update({
+        status: 'expired',
+        error_message: claimToken,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', session.id)
+      .eq('status', 'pending')
+      .select('id')
+
+    if (claimError) {
+      return NextResponse.json({ error: `Failed to lock payment session: ${claimError.message}` }, { status: 500 })
+    }
+
+    if (!claimRows || claimRows.length === 0) {
+      return redirectTo(req, '/', 'interaction_completed', referenceId)
+    }
 
     const payload = JSON.parse(session.payload_json) as IncomingPayload | OutgoingPayload | RecurringPayload
 
@@ -458,7 +506,7 @@ export async function GET(req: Request) {
 
         if (sessions.length > 0) {
           const session = sessions[0]
-          if (session.status !== 'pending') {
+          if (session.status !== 'pending' && session.status !== 'expired') {
             const message = err instanceof Error ? err.message : 'Callback continuation failed'
             return NextResponse.json({ error: message }, { status: 500 })
           }

@@ -13,6 +13,18 @@ interface ConfirmBody {
   member_email?: string
 }
 
+function isConfirmBody(value: unknown): value is ConfirmBody {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as { contribution_id?: unknown; member_email?: unknown }
+  const hasContributionId = typeof candidate.contribution_id === 'string' && candidate.contribution_id.trim().length > 0
+  const hasValidEmailType = typeof candidate.member_email === 'undefined' || typeof candidate.member_email === 'string'
+
+  return hasContributionId && hasValidEmailType
+}
+
 interface GrantSessionPayload {
   incomingPaymentId?: string
   outgoingPaymentId?: string
@@ -35,7 +47,14 @@ export async function POST(req: Request) {
     await syncSupabaseUserToClickHouse(user)
     const admin = createSupabaseAdminClient()
 
-    const body = await req.json() as ConfirmBody
+    const rawBody = await req.json() as unknown
+    if (!isConfirmBody(rawBody)) {
+      return NextResponse.json({ error: 'Invalid request body. Expected contribution_id:string' }, { status: 400 })
+    }
+    const body: ConfirmBody = {
+      contribution_id: rawBody.contribution_id.trim(),
+      member_email: typeof rawBody.member_email === 'string' ? rawBody.member_email : undefined,
+    }
 
     if (!body.contribution_id) {
       return NextResponse.json({ error: 'contribution_id required' }, { status: 400 })
@@ -148,8 +167,8 @@ export async function POST(req: Request) {
       const paymentStatus = await pollIncomingPaymentCompletion({
         paymentId: incomingPaymentId,
         expectedAmount: Number(contribution.amount),
-        attempts: 4,
-        intervalMs: 1500,
+        attempts: 1,
+        intervalMs: 250,
       })
 
       if (paymentStatus.state === 'completed' && paymentStatus.receivedAmount >= Number(contribution.amount)) {
@@ -161,8 +180,8 @@ export async function POST(req: Request) {
       try {
         const outgoingStatus = await pollOutgoingPaymentCompletion({
           paymentId: outgoingPaymentId,
-          attempts: 6,
-          intervalMs: 1500,
+          attempts: 1,
+          intervalMs: 250,
         })
 
         if (outgoingStatus.state === 'completed') {

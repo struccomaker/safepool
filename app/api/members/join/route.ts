@@ -15,6 +15,27 @@ interface JoinRequest {
   household_size?: number
 }
 
+function isJoinRequest(value: unknown): value is JoinRequest {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as {
+    wallet_address?: unknown
+    location_lat?: unknown
+    location_lon?: unknown
+    household_size?: unknown
+  }
+
+  const walletValid = typeof candidate.wallet_address === 'undefined' || typeof candidate.wallet_address === 'string'
+  const latValid = typeof candidate.location_lat === 'number' && Number.isFinite(candidate.location_lat) && candidate.location_lat >= -90 && candidate.location_lat <= 90
+  const lonValid = typeof candidate.location_lon === 'number' && Number.isFinite(candidate.location_lon) && candidate.location_lon >= -180 && candidate.location_lon <= 180
+  const householdValid = typeof candidate.household_size === 'undefined'
+    || (typeof candidate.household_size === 'number' && Number.isInteger(candidate.household_size) && candidate.household_size > 0 && candidate.household_size <= 30)
+
+  return walletValid && latValid && lonValid && householdValid
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createSupabaseServerClient()
@@ -31,7 +52,16 @@ export async function POST(req: NextRequest) {
 
     await syncSupabaseUserToClickHouse(user)
 
-    const body = await req.json() as JoinRequest
+    const rawBody = await req.json() as unknown
+    if (!isJoinRequest(rawBody)) {
+      return NextResponse.json({ error: 'Invalid request body for member join' }, { status: 400 })
+    }
+    const body: JoinRequest = {
+      wallet_address: typeof rawBody.wallet_address === 'string' ? rawBody.wallet_address.trim() : undefined,
+      location_lat: rawBody.location_lat,
+      location_lon: rawBody.location_lon,
+      household_size: rawBody.household_size,
+    }
 
     const requestedWallet = body.wallet_address?.trim()
     let walletAddress = requestedWallet ?? ''

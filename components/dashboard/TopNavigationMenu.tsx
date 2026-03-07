@@ -480,7 +480,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const confirmContribution = async (contributionId: string): Promise<ConfirmContributionResponse | null> => {
     setDonationStep('confirming')
 
-    const maxAttempts = 12
+    const maxAttempts = 4
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const confirmRes = await fetch('/api/payments/confirm', {
@@ -519,7 +519,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         }
 
         if (confirmRes.status === 409 && attempt < maxAttempts - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2000))
+          await new Promise((resolve) => setTimeout(resolve, 800))
           continue
         }
 
@@ -529,7 +529,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         return null
       } catch {
         if (attempt < maxAttempts - 1) {
-          await new Promise((resolve) => setTimeout(resolve, 2000))
+          await new Promise((resolve) => setTimeout(resolve, 800))
           continue
         }
         setDonationError('Network error during confirmation.')
@@ -631,21 +631,21 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     setDonationStep('submitting')
 
     try {
-      const joinRes = await fetch('/api/members/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          location_lat: 14.5995,
-          location_lon: 120.9842,
-          household_size: 1,
-        }),
-      })
+      const ensureMemberJoin = async () => {
+        const joinRes = await fetch('/api/members/join', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            location_lat: 14.5995,
+            location_lon: 120.9842,
+            household_size: 1,
+          }),
+        })
 
-      if (!joinRes.ok) {
-        const data = await joinRes.json()
-        setDonationError(data.error ?? 'Failed to join pool.')
-        setDonationStep('error')
-        return
+        if (!joinRes.ok) {
+          const data = await joinRes.json()
+          throw new Error(data.error ?? 'Failed to join pool.')
+        }
       }
 
       if (isRecurring) {
@@ -679,7 +679,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         return
       }
 
-      const contributeRes = await fetch('/api/payments/contribute', {
+      const createOneTimeContribution = async () => fetch('/api/payments/contribute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -687,6 +687,22 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
           currency: 'SGD',
         }),
       })
+
+      let contributeRes = await createOneTimeContribution()
+
+      if (!contributeRes.ok) {
+        const data = await contributeRes.json()
+        const errorMessage = typeof data?.error === 'string' ? data.error : ''
+
+        if (contributeRes.status === 400 && errorMessage.includes('Join SafePool first')) {
+          await ensureMemberJoin()
+          contributeRes = await createOneTimeContribution()
+        } else {
+          setDonationError(data.error ?? 'Failed to create contribution.')
+          setDonationStep('error')
+          return
+        }
+      }
 
       if (!contributeRes.ok) {
         const data = await contributeRes.json()

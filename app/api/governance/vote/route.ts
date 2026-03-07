@@ -8,6 +8,21 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const VALID_VOTES = new Set(['yes', 'no', 'abstain'])
+
+function isVoteRequest(value: unknown): value is VoteRequest {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as { proposal_id?: unknown; vote?: unknown }
+  return typeof candidate.proposal_id === 'string'
+    && UUID_REGEX.test(candidate.proposal_id)
+    && typeof candidate.vote === 'string'
+    && VALID_VOTES.has(candidate.vote)
+}
+
 export async function POST(req: NextRequest) {
   try {
     const supabase = await createSupabaseServerClient()
@@ -23,7 +38,16 @@ export async function POST(req: NextRequest) {
     await syncSupabaseUserToClickHouse(user)
     const admin = createSupabaseAdminClient()
 
-    const body = await req.json() as VoteRequest
+    const rawBody = await req.json() as unknown
+    if (!isVoteRequest(rawBody)) {
+      return NextResponse.json({ error: 'Invalid vote request payload' }, { status: 400 })
+    }
+
+    const body: VoteRequest = {
+      proposal_id: rawBody.proposal_id,
+      pool_id: GLOBAL_POOL_ID,
+      vote: rawBody.vote,
+    }
 
     const id = crypto.randomUUID()
 
