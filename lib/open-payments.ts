@@ -133,7 +133,7 @@ async function upsertPaymentStatusCache(input: {
     }, { onConflict: 'payment_id' })
 
   if (error) {
-    throw new Error(`Failed to persist payment status cache: ${error.message}`)
+    console.error('Non-blocking payment status cache write failed', error.message)
   }
 }
 
@@ -369,11 +369,18 @@ function toMinorUnits(amount: number, assetScale: number): string {
   return String(Math.round(amount * (10 ** assetScale)))
 }
 
-function fromMinorUnits(value?: string): number {
+function fromMinorUnits(value?: string, assetScale = 2): number {
   if (!value) return 0
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return 0
-  return parsed / 100
+  return parsed / (10 ** assetScale)
+}
+
+function toMinorNumber(value?: string): number {
+  if (!value) return 0
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+  return parsed
 }
 
 function getSiteBaseUrl(): string {
@@ -723,13 +730,18 @@ export async function getIncomingPaymentStatus(paymentId: string): Promise<Incom
   }
 
   const payload = await fetchJson(paymentId) as {
-    incomingAmount?: { value?: string }
-    receivedAmount?: { value?: string }
+    incomingAmount?: { value?: string; assetScale?: number }
+    receivedAmount?: { value?: string; assetScale?: number }
   }
 
-  const incomingAmount = fromMinorUnits(payload.incomingAmount?.value)
-  const receivedAmount = fromMinorUnits(payload.receivedAmount?.value)
-  const state = incomingAmount > 0 && receivedAmount >= incomingAmount ? 'completed' : 'pending'
+  const incomingScale = typeof payload.incomingAmount?.assetScale === 'number' ? payload.incomingAmount.assetScale : 2
+  const receivedScale = typeof payload.receivedAmount?.assetScale === 'number' ? payload.receivedAmount.assetScale : incomingScale
+
+  const incomingMinor = toMinorNumber(payload.incomingAmount?.value)
+  const receivedMinor = toMinorNumber(payload.receivedAmount?.value)
+  const incomingAmount = fromMinorUnits(payload.incomingAmount?.value, incomingScale)
+  const receivedAmount = fromMinorUnits(payload.receivedAmount?.value, receivedScale)
+  const state = incomingMinor > 0 && receivedMinor >= incomingMinor ? 'completed' : 'pending'
 
   return { paymentId, state, receivedAmount, incomingAmount }
 }
@@ -935,12 +947,13 @@ export async function getOutgoingPaymentStatus(paymentId: string): Promise<Outgo
   }
 
   const payload = await fetchJson(paymentId) as {
-    debitAmount?: { value?: string }
+    debitAmount?: { value?: string; assetScale?: number }
     receiveAmount?: { value?: string }
     failed?: boolean
   }
 
-  const debitAmount = fromMinorUnits(payload.debitAmount?.value)
+  const debitScale = typeof payload.debitAmount?.assetScale === 'number' ? payload.debitAmount.assetScale : 2
+  const debitAmount = fromMinorUnits(payload.debitAmount?.value, debitScale)
   const state = payload.failed ? 'failed' : payload.receiveAmount?.value ? 'completed' : 'pending'
 
   return { paymentId, state, debitAmount }

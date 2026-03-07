@@ -45,6 +45,20 @@ interface ContributionHistoryItem {
   status: 'pending' | 'completed' | 'failed'
 }
 
+interface ConfirmContributionResponse {
+  id: string
+  amount?: number
+  currency?: string
+  error?: string
+}
+
+interface PaymentPopupState {
+  open: boolean
+  variant: 'success' | 'error'
+  title: string
+  message: string
+}
+
 const itemClass =
   'inline-flex h-9 items-center justify-center rounded-md px-4 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white'
 
@@ -193,6 +207,12 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const [lastFlow, setLastFlow] = useState<'one_time' | 'recurring' | null>(null)
   const [pendingContributionId, setPendingContributionId] = useState<string | null>(null)
   const [approvalUrl, setApprovalUrl] = useState('')
+  const [paymentPopup, setPaymentPopup] = useState<PaymentPopupState>({
+    open: false,
+    variant: 'success',
+    title: '',
+    message: '',
+  })
 
   const [profileLoading, setProfileLoading] = useState(false)
   const [profileError, setProfileError] = useState('')
@@ -457,10 +477,10 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     }
   }
 
-  const confirmContribution = async (contributionId: string) => {
+  const confirmContribution = async (contributionId: string): Promise<ConfirmContributionResponse | null> => {
     setDonationStep('confirming')
 
-    const maxAttempts = 5
+    const maxAttempts = 12
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         const confirmRes = await fetch('/api/payments/confirm', {
@@ -470,13 +490,19 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         })
 
         if (confirmRes.ok) {
+          const payload = (await confirmRes.json()) as ConfirmContributionResponse
+          const currency = payload.currency ?? 'SGD'
+          const amountText = typeof payload.amount === 'number' ? `${payload.amount} ${currency}` : null
+
           setDonationStep('success')
           setSuccessMessage(
             lastFlow === 'recurring'
               ? 'Recurring contribution setup is active. Scheduled charges will run via cron.'
               : lastContributionMode === 'demo'
                 ? 'Donation simulated successfully (DEMO_MODE is enabled; no real wallet transaction was sent).'
-                : 'Donation confirmed successfully!'
+                : amountText
+                  ? `Donation successful: ${amountText}`
+                  : 'Donation confirmed successfully!'
           )
 
           window.dispatchEvent(
@@ -489,7 +515,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
               },
             })
           )
-          return
+          return payload
         }
 
         if (confirmRes.status === 409 && attempt < maxAttempts - 1) {
@@ -500,7 +526,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         const data = await confirmRes.json()
         setDonationError(data.error ?? 'Confirmation failed.')
         setDonationStep('error')
-        return
+        return null
       } catch {
         if (attempt < maxAttempts - 1) {
           await new Promise((resolve) => setTimeout(resolve, 2000))
@@ -508,13 +534,88 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         }
         setDonationError('Network error during confirmation.')
         setDonationStep('error')
-        return
+        return null
       }
     }
 
     setDonationError('Payment is still processing. Please check your profile for status updates.')
     setDonationStep('error')
+    return null
   }
+
+  useEffect(() => {
+    const paymentState = searchParams.get('payment_state')
+    const referenceId = searchParams.get('reference_id')
+    const callbackAmount = searchParams.get('amount')
+    const callbackCurrency = searchParams.get('currency')
+
+    if (!paymentState || !referenceId) {
+      return
+    }
+
+    const clearParams = () => {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('payment_state')
+      url.searchParams.delete('reference_id')
+      url.searchParams.delete('amount')
+      url.searchParams.delete('currency')
+      router.replace(url.pathname + url.search, { scroll: false })
+    }
+
+    const showPopup = (variant: 'success' | 'error', title: string, message: string) => {
+      setPaymentPopup({ open: true, variant, title, message })
+    }
+
+    const processCallbackResult = async () => {
+      if (paymentState === 'interaction_completed') {
+        const payload = await confirmContribution(referenceId)
+        if (payload) {
+          const amountText = typeof payload.amount === 'number'
+            ? `${payload.amount} ${payload.currency ?? 'SGD'}`
+            : null
+          showPopup(
+            'success',
+            'Donation Successful',
+            amountText ? `Your donation of ${amountText} has been confirmed.` : 'Your donation has been confirmed.'
+          )
+        } else {
+          showPopup('error', 'Donation Not Confirmed', 'Payment approval completed, but confirmation did not finish successfully.')
+        }
+        clearParams()
+        return
+      }
+
+      if (paymentState === 'payment_completed') {
+        const parsedAmount = callbackAmount ? Number(callbackAmount) : NaN
+        const amountText = Number.isFinite(parsedAmount)
+          ? `${parsedAmount} ${callbackCurrency ?? 'SGD'}`
+          : null
+        showPopup(
+          'success',
+          'Donation Successful',
+          amountText ? `Your donation of ${amountText} has been confirmed.` : 'Your donation has been confirmed.'
+        )
+        clearParams()
+        return
+      }
+
+      if (paymentState === 'recurring_active') {
+        showPopup('success', 'Recurring Setup Active', 'Your recurring contribution approval completed successfully.')
+        clearParams()
+        return
+      }
+
+      if (paymentState === 'grant_rejected' || paymentState === 'failed') {
+        showPopup('error', 'Payment Failed', 'Wallet approval was rejected or payment failed.')
+        clearParams()
+        return
+      }
+
+      clearParams()
+    }
+
+    void processCallbackResult()
+  }, [searchParams, router])
 
   const handleDonationSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -628,6 +729,8 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     if (url.searchParams.has('payment_state') || url.searchParams.has('reference_id')) {
       url.searchParams.delete('payment_state')
       url.searchParams.delete('reference_id')
+      url.searchParams.delete('amount')
+      url.searchParams.delete('currency')
       router.replace(url.pathname + url.search, { scroll: false })
     }
   }
@@ -684,6 +787,29 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
 
       <GovernanceModal open={showGovernanceModal} onClose={() => setShowGovernanceModal(false)} />
       <VotingModal open={showVotingModal} onClose={() => setShowVotingModal(false)} />
+
+      {paymentPopup.open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 backdrop-blur-sm">
+          <Card className="w-[24rem] border-white/20 bg-black/90 text-white">
+            <CardHeader>
+              <CardTitle className={paymentPopup.variant === 'success' ? 'text-green-300' : 'text-red-300'}>
+                {paymentPopup.title}
+              </CardTitle>
+              <CardDescription className="text-white/70">{paymentPopup.message}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                className="w-full"
+                onClick={() => setPaymentPopup((prev) => ({ ...prev, open: false }))}
+                type="button"
+                variant="secondary"
+              >
+                Close
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {showDonationModal && (
         <div

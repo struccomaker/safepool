@@ -5,10 +5,12 @@ import {
   continueOneTimeContributionAuthorization,
   continueOutgoingPayment,
   continueRecurringContributionGrant,
+  pollIncomingPaymentCompletion,
   pollOutgoingPaymentCompletion,
 } from '@/lib/open-payments'
 import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { decryptSecret, encryptSecret } from '@/lib/secret-crypto'
+import { insertRows, toClickHouseDateTime } from '@/lib/clickhouse'
 
 type CallbackFlow = 'incoming' | 'outgoing' | 'recurring'
 
@@ -49,6 +51,15 @@ interface RecurringPayload {
   amount: number
   currency: string
   interval: string
+}
+
+interface PendingContributionRow {
+  id: string
+  pool_id: string
+  member_id: string
+  amount: number
+  currency: string
+  incoming_payment_id: string
 }
 
 interface OpenPaymentsErrorLike {
@@ -95,11 +106,132 @@ function addIntervalDate(from: Date, interval: string): Date {
   }
 }
 
-function redirectTo(req: Request, path: string, state: string, referenceId: string): NextResponse {
+function redirectTo(
+  req: Request,
+  path: string,
+  state: string,
+  referenceId: string,
+  extras?: Record<string, string>
+): NextResponse {
   const url = new URL(path, req.url)
   url.searchParams.set('payment_state', state)
   url.searchParams.set('reference_id', referenceId)
+  if (extras) {
+    for (const [key, value] of Object.entries(extras)) {
+      url.searchParams.set(key, value)
+    }
+  }
   return NextResponse.redirect(url)
+}
+
+async function finalizeOneTimeContribution(contributionId: string): Promise<{
+  state: 'completed' | 'pending'
+  amount?: number
+  currency?: string
+}>
+ {
+  const admin = createSupabaseAdminClient()
+
+  const { data: existingRows, error: existingError } = await admin
+    .from('contributions')
+    .select('id,amount,currency')
+    .eq('id', contributionId)
+    .limit(1)
+
+  if (existingError) {
+    throw new Error(`Failed to check confirmed contribution state: ${existingError.message}`)
+  }
+
+  if (existingRows.length > 0) {
+    await admin
+      .from('pending_contributions')
+      .delete()
+      .eq('id', contributionId)
+
+    return {
+      state: 'completed',
+      amount: Number(existingRows[0].amount),
+      currency: existingRows[0].currency,
+    }
+  }
+
+  const { data: pendingRows, error: pendingError } = await admin
+    .from('pending_contributions')
+    .select('id,pool_id,member_id,amount,currency,incoming_payment_id')
+    .eq('id', contributionId)
+    .limit(1)
+
+  if (pendingError) {
+    throw new Error(`Failed to load pending contribution: ${pendingError.message}`)
+  }
+
+  if (pendingRows.length === 0) {
+    return { state: 'pending' }
+  }
+
+  const pending = pendingRows[0] as PendingContributionRow
+  if (!pending.incoming_payment_id) {
+    return { state: 'pending' }
+  }
+
+  const paymentStatus = await pollIncomingPaymentCompletion({
+    paymentId: pending.incoming_payment_id,
+    expectedAmount: Number(pending.amount),
+    attempts: 2,
+    intervalMs: 1200,
+  })
+
+  if (paymentStatus.state !== 'completed' || paymentStatus.receivedAmount < Number(pending.amount)) {
+    return { state: 'pending' }
+  }
+
+  const contributedAt = new Date().toISOString()
+  const { error: contributionUpsertError } = await admin
+    .from('contributions')
+    .upsert({
+      id: pending.id,
+      pool_id: pending.pool_id,
+      member_id: pending.member_id,
+      amount: pending.amount,
+      currency: pending.currency,
+      incoming_payment_id: pending.incoming_payment_id,
+      contributed_at: contributedAt,
+      status: 'completed',
+    }, { onConflict: 'id' })
+
+  if (contributionUpsertError) {
+    throw new Error(`Failed to finalize contribution: ${contributionUpsertError.message}`)
+  }
+
+  const { error: deletePendingError } = await admin
+    .from('pending_contributions')
+    .delete()
+    .eq('id', pending.id)
+
+  if (deletePendingError) {
+    throw new Error(`Failed to clear pending contribution after finalization: ${deletePendingError.message}`)
+  }
+
+  try {
+    await insertRows('contributions', [{
+      id: pending.id,
+      pool_id: pending.pool_id,
+      member_id: pending.member_id,
+      amount: pending.amount,
+      currency: pending.currency,
+      incoming_payment_id: pending.incoming_payment_id,
+      contributed_at: toClickHouseDateTime(new Date(contributedAt)),
+      status: 'completed',
+    }])
+  } catch (mirrorErr) {
+    console.error('Non-blocking ClickHouse contribution mirror write failed during callback finalization', mirrorErr)
+  }
+
+  return {
+    state: 'completed',
+    amount: Number(pending.amount),
+    currency: pending.currency,
+  }
 }
 
 export async function GET(req: Request) {
@@ -185,6 +317,19 @@ export async function GET(req: Request) {
 
       if (updateSessionError) {
         return NextResponse.json({ error: `Failed to persist incoming grant completion: ${updateSessionError.message}` }, { status: 500 })
+      }
+
+      try {
+        const finalization = await finalizeOneTimeContribution(referenceId)
+
+        if (finalization.state === 'completed') {
+          return redirectTo(req, '/', 'payment_completed', referenceId, {
+            amount: String(finalization.amount ?? ''),
+            currency: finalization.currency ?? '',
+          })
+        }
+      } catch (finalizationErr) {
+        console.error('Non-blocking callback finalization failed, falling back to frontend confirmation', finalizationErr)
       }
 
       return redirectTo(req, '/', 'interaction_completed', referenceId)
