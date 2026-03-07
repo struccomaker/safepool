@@ -9,8 +9,10 @@ const MAX_DONATIONS = 6
 interface DonationItem {
   id: string
   member: string
+  country: string
+  isAnonymous: boolean
   amount: number
-   currency: string
+  currency: string
   receivedAt: number
 }
 
@@ -24,10 +26,55 @@ interface SidebarResponse {
   donations: Array<{
     id: string
     member: string
+    country: string
+    is_anonymous: boolean
     amount: number
     currency: string
     contributed_at: string
   }>
+}
+
+function countryCodeToFlag(countryCode: string): string {
+  const code = countryCode.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) {
+    return '🌐'
+  }
+  const points = [...code].map((char) => 127397 + char.charCodeAt(0))
+  return String.fromCodePoint(...points)
+}
+
+function countryCodeToName(countryCode: string): string {
+  const code = countryCode.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) {
+    return 'Unknown country'
+  }
+
+  if (typeof Intl !== 'undefined' && typeof Intl.DisplayNames !== 'undefined') {
+    const displayNames = new Intl.DisplayNames(['en'], { type: 'region' })
+    return displayNames.of(code) ?? 'Unknown country'
+  }
+
+  const fallbackNames: Record<string, string> = {
+    SG: 'Singapore',
+    PH: 'Philippines',
+    MY: 'Malaysia',
+    ID: 'Indonesia',
+    TH: 'Thailand',
+    VN: 'Vietnam',
+    IN: 'India',
+    JP: 'Japan',
+    KR: 'South Korea',
+    US: 'United States',
+    GB: 'United Kingdom',
+  }
+  return fallbackNames[code] ?? 'Unknown country'
+}
+
+function stripLeadingCountryPrefix(member: string, countryCode: string): string {
+  const code = countryCode.trim().toUpperCase()
+  const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const prefixPattern = new RegExp(`^(?:[^\\p{L}\\p{N}]*\\s*)?${escaped}\\s+`, 'iu')
+  return member.replace(prefixPattern, '').trim() || member
 }
 
 function formatElapsed(receivedAt: number): string {
@@ -66,6 +113,8 @@ export default function RightConfigSidebar() {
         const mapped: DonationItem[] = payload.donations.map((row) => ({
           id: row.id,
           member: row.member,
+          country: row.country,
+          isAnonymous: Boolean(row.is_anonymous),
           amount: Number(row.amount),
           currency: row.currency,
           receivedAt: new Date(row.contributed_at).getTime(),
@@ -134,7 +183,21 @@ export default function RightConfigSidebar() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    {donation.member ? <p className="text-sm font-semibold text-white">{donation.member}</p> : null}
+                    {donation.member ? (
+                      <div className="flex items-center gap-2">
+                        {!donation.isAnonymous ? (
+                          <span
+                            className="group relative inline-flex items-center gap-1 rounded-md border border-cyan-400/50 bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-cyan-100"
+                            title={countryCodeToName(donation.country)}
+                          >
+                            <span>{donation.country}</span>
+                          </span>
+                        ) : null}
+                        <p className="text-sm font-semibold text-white">
+                          {donation.isAnonymous ? 'anon' : stripLeadingCountryPrefix(donation.member, donation.country)}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
                   <span className="text-sm font-semibold text-green-300">{donation.amount.toFixed(2)} {donation.currency}</span>
                 </div>

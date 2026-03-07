@@ -8,18 +8,11 @@ import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 interface SidebarDonationItem {
   id: string
   member: string
+  country: string
+  is_anonymous: boolean
   amount: number
   currency: string
   contributed_at: string
-}
-
-function countryCodeToFlag(countryCode: string): string {
-  const code = countryCode.trim().toUpperCase()
-  if (!/^[A-Z]{2}$/.test(code)) {
-    return ''
-  }
-  const points = [...code].map((char) => 127397 + char.charCodeAt(0))
-  return String.fromCodePoint(...points)
 }
 
 function toDisplayMember(memberId: string): string {
@@ -61,9 +54,11 @@ export async function GET() {
 
     const donations: SidebarDonationItem[] = contributionsResult.data.map((row) => ({
       id: row.id,
-      member: row.is_anonymous
-        ? 'anon'
-        : `${countryCodeToFlag(typeof row.donor_country === 'string' ? row.donor_country : 'SG')} ${(row.donor_name?.trim() || toDisplayMember(row.member_id))}`.trim(),
+      member: row.is_anonymous ? 'anon' : (row.donor_name?.trim() || toDisplayMember(row.member_id)),
+      country: typeof row.donor_country === 'string' && /^[A-Za-z]{2}$/.test(row.donor_country)
+        ? row.donor_country.trim().toUpperCase()
+        : 'SG',
+      is_anonymous: Boolean(row.is_anonymous),
       amount: Number(row.amount),
       currency: row.currency,
       contributed_at: row.contributed_at,

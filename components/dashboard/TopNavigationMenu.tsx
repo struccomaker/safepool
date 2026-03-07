@@ -80,6 +80,15 @@ const COUNTRY_OPTIONS: Array<{ code: string; label: string }> = [
   { code: 'GB', label: 'United Kingdom' },
 ]
 
+function countryCodeToFlag(countryCode: string): string {
+  const code = countryCode.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) {
+    return '🌐'
+  }
+  const points = [...code].map((char) => 127397 + char.charCodeAt(0))
+  return String.fromCodePoint(...points)
+}
+
 const MINI_GODZILLA_ORIENTATIONS = {
   front: [0, 0, 0],
   back: [0, Math.PI, 0],
@@ -1118,27 +1127,37 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
                         <span>{profileUser?.email ?? '—'}</span>
                       </div>
                       <div className="space-y-2 pt-1">
-                        <label className="text-white/40" htmlFor="profile-country">
+                        <label className="text-white/40">
                           Country
                         </label>
-                        <div className="flex gap-2">
-                          <select
-                            className="w-full rounded-md border border-white/20 bg-black/40 px-3 py-2 text-sm text-white"
-                            id="profile-country"
-                            onChange={(event) => setProfileCountry(event.target.value)}
-                            value={profileCountry}
-                          >
-                            {COUNTRY_OPTIONS.map((option) => (
-                              <option key={option.code} value={option.code}>{option.label}</option>
-                            ))}
-                          </select>
+                        <div className="rounded-lg border border-white/10 bg-black/35 p-2">
+                          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                            {COUNTRY_OPTIONS.map((option) => {
+                              const selected = profileCountry === option.code
+                              return (
+                                <button
+                                  className={`rounded-md border px-2 py-2 text-left text-xs transition-colors ${selected
+                                    ? 'border-cyan-400/60 bg-cyan-500/20 text-white'
+                                    : 'border-white/10 bg-white/5 text-white/80 hover:border-white/25 hover:bg-white/10'}`}
+                                  key={option.code}
+                                  onClick={() => setProfileCountry(option.code)}
+                                  type="button"
+                                >
+                                  <span className="mr-1.5">{countryCodeToFlag(option.code)}</span>
+                                  {option.label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
                           <Button
                             disabled={profileCountrySaving}
                             onClick={() => void saveProfileCountry()}
                             type="button"
                             variant="secondary"
                           >
-                            {profileCountrySaving ? 'Saving...' : 'Save'}
+                            {profileCountrySaving ? 'Saving...' : 'Save Country'}
                           </Button>
                         </div>
                       </div>
