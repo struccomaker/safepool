@@ -29,6 +29,8 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 - **ClickHouse helper abstraction:** Shared helpers (`queryRows`, `insertRows`, `runCommand`) centralize query patterns.
 - **Input validation on critical writes:** UUID checks, wallet URL validation in payment/member routes.
 - **Fallback-first integration:** Open Payments routes support demo fallback when grants/config unavailable.
+- **Payment lifecycle hardening:** Incoming/outgoing callbacks, status polling, and recurring cron flows are implemented as first-class backend routes.
+- **Encrypted sensitive payment state:** Stored Open Payments continuation/access tokens are encrypted at rest before persistence.
 
 ---
 
@@ -39,6 +41,9 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 - **City drill-down impact map** — Country selection opens MapLibre city map with damage heat overlays (`components/dashboard/MapcnDrilldownMap.tsx`)
 - **Global emergency fund model** — Single global pool architecture (`lib/global-pool.ts`, `/pool`, `/contribute`, `/members`, `/governance`)
 - **Contribution flow** — API + confirmation + optional email receipt (`app/api/payments/contribute/route.ts`, `app/api/payments/confirm/route.ts`)
+- **Payment continuation + status APIs** — Callback continuation and authenticated payment status checks (`app/api/payments/callback/route.ts`, `app/api/payments/status/route.ts`)
+- **Wallet onboarding pipeline** — Canonical user wallet fetch/update endpoint (`app/api/wallet/me/route.ts`)
+- **Recurring contributions** — Recurring grant creation + scheduled processing (`app/api/recurring/create/route.ts`, `app/api/cron/process-recurring/route.ts`)
 - **Disaster ingestion & trigger processing** — Polls USGS/GDACS/OWM and processes payouts via cron (`app/api/cron/poll-disasters/route.ts`, `app/api/cron/process-payouts/route.ts`)
 - **Manual disaster simulation** — Manual event creation with immediate trigger evaluation (`app/api/disasters/manual-trigger/route.ts`)
 - **Governance** — Proposals and voting APIs + UI (`app/api/governance/*`, `app/governance/page.tsx`)
@@ -51,7 +56,7 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 
 ## Canonical Routes
 
-The app is now **single-pool + single-map-first**. The only map entry page is the root route (`/`).
+The app is now **single-pool + single-map-first**. The only map entry page is the root route (`/`), and there are no multi-pool API routes.
 
 ### App Routes
 
@@ -73,13 +78,18 @@ The app is now **single-pool + single-map-first**. The only map entry page is th
 - `/api/global/disasters/check` — Recent payout/disaster trigger check
 - `/api/payments/contribute` — Create Open Payments incoming payment
 - `/api/payments/confirm` — Confirm contribution + persist + email
+- `/api/payments/callback` — Continue interactive Open Payments grants (incoming/outgoing/recurring)
+- `/api/payments/status` — Authenticated status lookup for contribution/payout payments
 - `/api/members/join` — Join global pool
+- `/api/wallet/me` — Read/update the authenticated user's canonical wallet binding
 - `/api/governance/propose` — Submit proposal
 - `/api/governance/vote` — Cast vote
 - `/api/disasters` — List disaster events
 - `/api/disasters/manual-trigger` — Manual disaster simulation
 - `/api/cron/poll-disasters` — Poll disaster providers
 - `/api/cron/process-payouts` — Run payout processor
+- `/api/recurring/create` — Create recurring contribution grant/session
+- `/api/cron/process-recurring` — Execute due recurring contributions
 - `/api/analytics/fund-balance` — Fund balance analytics
 - `/api/analytics/contribution-trend` — Contribution trend analytics
 - `/api/analytics/payout-stats` — Payout statistics

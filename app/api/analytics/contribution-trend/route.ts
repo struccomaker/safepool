@@ -2,31 +2,22 @@ export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import client from '@/lib/clickhouse'
+import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
-    const { searchParams } = new URL(req.url)
-    const poolId = searchParams.get('poolId')
-
     const result = await client.query({
-      query: poolId
-        ? `SELECT toDate(contributed_at) AS date,
-                  sum(amount) AS daily_total,
-                  count() AS count
-           FROM contributions
-           WHERE pool_id = {pool_id:String} AND status = 'completed'
-           GROUP BY date
-           ORDER BY date ASC
-           LIMIT 90`
-        : `SELECT toDate(contributed_at) AS date,
-                  sum(amount) AS daily_total,
-                  count() AS count
-           FROM contributions
-           WHERE status = 'completed'
-           GROUP BY date
-           ORDER BY date ASC
-           LIMIT 90`,
-      query_params: poolId ? { pool_id: poolId } : {},
+      query: `
+        SELECT toDate(contributed_at) AS date,
+               sum(amount) AS daily_total,
+               count() AS count
+        FROM contributions
+        WHERE pool_id = {pool_id:String} AND status = 'completed'
+        GROUP BY date
+        ORDER BY date ASC
+        LIMIT 90
+      `,
+      query_params: { pool_id: GLOBAL_POOL_ID },
       format: 'JSONEachRow',
     })
     const data = await result.json()

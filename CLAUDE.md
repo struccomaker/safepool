@@ -9,6 +9,8 @@
 
 **SafePool** is a community-powered emergency fund platform. Think of a neighbourhood savings circle (ROSCA) that automatically pays out the moment a natural disaster hits. People pool small contributions → disaster is detected from USGS/GDACS APIs → Interledger (Open Payments) sends payouts instantly to affected members → ClickHouse tracks everything in real-time.
 
+**Architecture status (authoritative):** SafePool is now **single global pool only**. Multi-pool routes/flows are out of scope and should not be reintroduced.
+
 **Hackathon challenges we're targeting:**
 1. **Interledger / Open Payments** — automated ILP payouts on disaster trigger
 2. **ClickHouse** — materialized views for real-time fund analytics
@@ -19,9 +21,9 @@
 
 | Member | Role | Primary Files |
 |--------|------|---------------|
-| **Member 1** | Frontend Lead | `app/page.tsx`, `app/dashboard/`, `app/pools/`, `components/` |
-| **Member 2** | Backend Lead | `app/api/pools/`, `app/api/analytics/`, `app/api/governance/`, `lib/clickhouse.ts`, `lib/disaster-engine.ts`, `lib/payout-engine.ts` |
-| **Member 3** | Integrations Lead | `lib/open-payments.ts`, `lib/disaster-apis.ts`, `lib/email.ts`, `app/api/payments/`, `app/api/cron/`, `app/api/auth/` |
+| **Member 1** | Frontend Lead | `app/page.tsx`, `app/pool/`, `app/contribute/`, `components/` |
+| **Member 2** | Backend Lead | `app/api/global/`, `app/api/analytics/`, `app/api/governance/`, `lib/clickhouse.ts`, `lib/disaster-engine.ts`, `lib/payout-engine.ts` |
+| **Member 3** | Integrations Lead | `lib/open-payments.ts`, `lib/disaster-apis.ts`, `lib/email.ts`, `app/api/payments/`, `app/api/cron/`, `app/api/wallet/` |
 
 ---
 
@@ -29,11 +31,11 @@
 
 | Layer | Tool | Free Tier |
 |-------|------|-----------|
-| Framework | Next.js 14 (App Router) | Free |
+| Framework | Next.js 16 (App Router) | Free |
 | Styling | Tailwind CSS + shadcn/ui | Free |
 | Database | ClickHouse Cloud | Free (1 node, 10GB) |
 | Payments | Open Payments Testnet | Free (`wallet.interledger-test.dev`) |
-| Auth | NextAuth.js (credentials/email) | Free |
+| Auth | Supabase Auth (Google OAuth) | Free |
 | Email | Nodemailer + Gmail SMTP | Free (Gmail App Password) |
 | 3D Globe | react-globe.gl (Three.js) | Free npm package |
 | Charts | Recharts + TanStack Query | Free |
@@ -49,45 +51,42 @@
 ```
 safepool/
 ├── app/
-│   ├── layout.tsx                    # Root layout + NASDAQ ticker + navbar
-│   ├── page.tsx                      # Landing page (3D globe + hero)
-│   ├── dashboard/page.tsx            # User dashboard
-│   ├── pools/
-│   │   ├── page.tsx                  # Browse all pools
-│   │   ├── create/page.tsx           # Create new pool form
-│   │   └── [id]/
-│   │       ├── page.tsx              # Pool detail + FundMeter + charts
-│   │       ├── contribute/page.tsx   # ILP contribution flow
-│   │       ├── governance/page.tsx   # Proposals + voting
-│   │       └── members/page.tsx      # Member list
-│   ├── disasters/page.tsx            # Live feed + Leaflet map
-│   ├── analytics/page.tsx            # Global ClickHouse analytics
+│   ├── layout.tsx                    # Root layout + ticker + nav
+│   ├── page.tsx                      # Root map entry page
+│   ├── pool/page.tsx                 # Single global pool page
+│   ├── contribute/page.tsx           # Contribution page
+│   ├── governance/page.tsx           # Governance page
+│   ├── members/page.tsx              # Global members page
 │   ├── profile/page.tsx              # Wallet + contribution history
 │   └── api/
-│       ├── auth/[...nextauth]/route.ts
-│       ├── pools/route.ts            # GET list, POST create
-│       ├── pools/[id]/route.ts       # GET single pool
-│       ├── members/join/route.ts     # POST join pool
-│       ├── members/[poolId]/route.ts # GET pool members
+│       ├── global/
+│       │   ├── pool/route.ts
+│       │   ├── members/route.ts
+│       │   ├── governance/proposals/route.ts
+│       │   ├── payments/history/route.ts
+│       │   └── disasters/check/route.ts
+│       ├── members/join/route.ts
+│       ├── wallet/me/route.ts
 │       ├── payments/
-│       │   ├── contribute/route.ts   # POST create ILP incoming payment
-│       │   ├── confirm/route.ts      # POST confirm + store in CH + send email
-│       │   └── history/[poolId]/route.ts
-│       ├── disasters/route.ts        # GET list
-│       ├── disasters/manual-trigger/route.ts  # POST demo trigger
-│       ├── governance/
-│       │   ├── proposals/[poolId]/route.ts
-│       │   ├── propose/route.ts
-│       │   └── vote/route.ts
+│       │   ├── contribute/route.ts
+│       │   ├── confirm/route.ts
+│       │   ├── callback/route.ts
+│       │   └── status/route.ts
+│       ├── recurring/create/route.ts
+│       ├── disasters/route.ts
+│       ├── disasters/manual-trigger/route.ts
+│       ├── governance/propose/route.ts
+│       ├── governance/vote/route.ts
 │       ├── analytics/
 │       │   ├── fund-balance/route.ts
 │       │   ├── contribution-trend/route.ts
 │       │   ├── payout-stats/route.ts
 │       │   └── disaster-map/route.ts
-│       ├── sse/contributions/route.ts  # Server-Sent Events for LED ticker
+│       ├── sse/contributions/route.ts
 │       └── cron/
 │           ├── poll-disasters/route.ts
-│           └── process-payouts/route.ts
+│           ├── process-payouts/route.ts
+│           └── process-recurring/route.ts
 ├── lib/
 │   ├── clickhouse.ts       # ClickHouse client singleton
 │   ├── open-payments.ts    # ILP authenticated client + helpers
@@ -134,9 +133,9 @@ POOL_WALLET_ADDRESS=https://wallet.interledger-test.dev/safepool
 # Disaster APIs
 OPENWEATHERMAP_API_KEY=        # Free tier at openweathermap.org
 
-# NextAuth
-NEXTAUTH_SECRET=               # Run: openssl rand -base64 32
-NEXTAUTH_URL=http://localhost:3000
+# App URL / encryption
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+APP_ENCRYPTION_KEY=
 
 # SMTP Email (Gmail — enable 2FA → App Passwords → generate one)
 SMTP_HOST=smtp.gmail.com
@@ -169,13 +168,13 @@ export default client
 
 ### API Route Pattern
 ```typescript
-// app/api/pools/route.ts
+// app/api/global/pool/route.ts
 import { NextResponse } from 'next/server'
 import client from '@/lib/clickhouse'
 
 export async function GET() {
   const result = await client.query({
-    query: 'SELECT * FROM pools WHERE is_active = 1 ORDER BY created_at DESC',
+    query: 'SELECT id, name, contribution_amount, currency FROM pools WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1',
     format: 'JSONEachRow',
   })
   const data = await result.json()
@@ -228,7 +227,7 @@ npx ts-node scripts/seed.ts   # Seed demo data
 ## Demo Flow (for judges)
 
 1. Open landing page — 3D globe spins, LED marquee ticker shows live donations
-2. Create pool "Manila Flood Relief" — earthquake + flood triggers, equal split
+2. Open the global pool page and review trigger + governance settings
 3. Join with 5 demo wallets (Philippine coordinates)
 4. Make 3 contributions — ILP redirects, SMTP confirmation emails received
 5. Click **Simulate Disaster** — M6.5 earthquake, Metro Manila
@@ -349,30 +348,30 @@ for await (const row of stream.stream()) { /* process row */ }
 
 ---
 
-### NextAuth.js
+### Supabase Auth
 
-**13. Use JWT sessions (the default) — database sessions not needed for this project**
-JWT tokens are stored in an HttpOnly cookie — no extra DB table needed. Faster and simpler for a hackathon.
+**13. Use Supabase auth sessions and keep API route guards server-side**
+Resolve auth with Supabase in each protected route and reject unauthorized access immediately.
 
-**14. Protect API routes by checking the session token**
+**14. Protect API routes by checking the Supabase user**
 ```typescript
-import { getToken } from 'next-auth/jwt'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 export async function POST(req: Request) {
-  const token = await getToken({ req })
-  if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const supabase = await createSupabaseServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   // ...
 }
 ```
 
-**15. Keep JWT payload small — only store `id`, `email`, `name`**
-Every request sends the JWT cookie. Large payloads slow every request. Don't store roles, permissions, or large objects in the token.
+**15. Keep Supabase user metadata minimal and canonicalize wallet data in backend tables**
+Store only essential metadata in auth profile, while authoritative wallet bindings stay in backend tables.
 
-**16. Use middleware (`middleware.ts`) to protect whole route groups at once**
+**16. Use middleware for route-group protection where appropriate**
 ```typescript
 // middleware.ts
-export { default } from 'next-auth/middleware'
-export const config = { matcher: ['/dashboard/:path*', '/pools/:path*'] }
+export const config = { matcher: ['/profile/:path*', '/contribute/:path*'] }
 ```
 
 ---
