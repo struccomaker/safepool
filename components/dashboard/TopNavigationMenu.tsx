@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect, useState, type FormEvent } from 'react'
-import Link from 'next/link'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import GovernanceModal from '@/components/dashboard/GovernanceModal'
+import VotingModal from '@/components/dashboard/VotingModal'
 
 interface TopNavigationMenuProps {
   isAuthenticated?: boolean
@@ -18,6 +20,8 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const [authed, setAuthed] = useState(isAuthenticated)
   const [error, setError] = useState('')
   const [showDonationModal, setShowDonationModal] = useState(false)
+  const [showGovernanceModal, setShowGovernanceModal] = useState(false)
+  const [showVotingModal, setShowVotingModal] = useState(false)
   const [walletId, setWalletId] = useState('')
   const [donationAmount, setDonationAmount] = useState('50')
   const [isRecurring, setIsRecurring] = useState(false)
@@ -136,9 +140,16 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
             </button>
           ) : (
             <>
-              <Link className={itemClass} href="/governance">
+              <button
+                className={`${itemClass} text-white/40 hover:text-white/60`}
+                onClick={() => setShowGovernanceModal(true)}
+                type="button"
+              >
                 Governance
-              </Link>
+              </button>
+              <button className={itemClass} onClick={() => setShowVotingModal(true)} type="button">
+                Voting
+              </button>
               <button className={itemClass} onClick={() => setShowDonationModal(true)} type="button">
                 Donation
               </button>
@@ -150,6 +161,9 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         </div>
         {error ? <p className="px-2 pt-1 text-xs text-red-300">{error}</p> : null}
       </div>
+
+      <GovernanceModal open={showGovernanceModal} onClose={() => setShowGovernanceModal(false)} />
+      <VotingModal open={showVotingModal} onClose={() => setShowVotingModal(false)} />
 
       {showDonationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm">
