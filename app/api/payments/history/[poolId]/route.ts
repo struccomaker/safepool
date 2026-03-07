@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
 import { queryRows } from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'

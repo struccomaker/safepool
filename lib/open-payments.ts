@@ -2,12 +2,25 @@ import { createAuthenticatedClient } from '@interledger/open-payments'
 
 let _client: Awaited<ReturnType<typeof createAuthenticatedClient>> | null = null
 
+function getRequiredEnv(name: string): string {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`)
+  }
+  return value
+}
+
 async function getClient() {
   if (_client) return _client
+
+  const keyId = getRequiredEnv('OPEN_PAYMENTS_KEY_ID')
+  const privateKeyBase64 = getRequiredEnv('OPEN_PAYMENTS_PRIVATE_KEY')
+  const walletAddressUrl = getRequiredEnv('POOL_WALLET_ADDRESS')
+
   _client = await createAuthenticatedClient({
-    keyId: process.env.OPEN_PAYMENTS_KEY_ID!,
-    privateKey: Buffer.from(process.env.OPEN_PAYMENTS_PRIVATE_KEY!, 'base64'),
-    walletAddressUrl: process.env.POOL_WALLET_ADDRESS!,
+    keyId,
+    privateKey: Buffer.from(privateKeyBase64, 'base64'),
+    walletAddressUrl,
   })
   return _client
 }
@@ -28,7 +41,7 @@ interface CreateIncomingPaymentOptions {
 }
 
 export async function createIncomingPayment({ poolId, amount, currency }: CreateIncomingPaymentOptions) {
-  const walletAddress = process.env.POOL_WALLET_ADDRESS!
+  const walletAddress = getRequiredEnv('POOL_WALLET_ADDRESS')
 
   if (!isValidWalletAddress(walletAddress)) {
     throw new Error('Invalid pool wallet address')
@@ -96,7 +109,7 @@ export async function createOutgoingPayment({
   currency,
   metadata,
 }: CreateOutgoingPaymentOptions): Promise<{ outgoingPaymentId: string; status: string }> {
-  const walletAddress = process.env.POOL_WALLET_ADDRESS!
+  const walletAddress = getRequiredEnv('POOL_WALLET_ADDRESS')
   const client = await getClient()
 
   const valueInCents = String(Math.round(amount * 100))

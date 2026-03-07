@@ -21,7 +21,24 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 export async function evaluateTriggers(disasterEventId: string): Promise<number> {
   // Load the disaster event
   const eventResult = await client.query({
-    query: `SELECT * FROM disaster_events WHERE id = {id:String} LIMIT 1`,
+    query: `
+      SELECT
+        id,
+        source,
+        external_id,
+        disaster_type,
+        magnitude,
+        severity,
+        location_name,
+        location_lat,
+        location_lon,
+        occurred_at,
+        raw_data,
+        processed
+      FROM disaster_events
+      WHERE id = {id:String}
+      LIMIT 1
+    `,
     query_params: { id: disasterEventId },
     format: 'JSONEachRow',
   })
@@ -36,7 +53,20 @@ export async function evaluateTriggers(disasterEventId: string): Promise<number>
 
   // Load all active members of the global pool
   const membersResult = await client.query({
-    query: `SELECT * FROM members WHERE pool_id = {pool_id:String} AND is_active = 1`,
+    query: `
+      SELECT
+        id,
+        pool_id,
+        user_id,
+        wallet_address,
+        location_lat,
+        location_lon,
+        household_size,
+        joined_at,
+        is_active
+      FROM members
+      WHERE pool_id = {pool_id:String} AND is_active = 1
+    `,
     query_params: { pool_id: GLOBAL_POOL_ID },
     format: 'JSONEachRow',
   })

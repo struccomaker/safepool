@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
 import { insertRows } from '@/lib/clickhouse'
 import { evaluateTriggers } from '@/lib/disaster-engine'

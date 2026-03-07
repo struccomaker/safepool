@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
 import { insertRows, queryRows, toClickHouseDateTime } from '@/lib/clickhouse'
 import { sendContributionEmail } from '@/lib/email'

@@ -3,6 +3,8 @@ export const dynamic = 'force-dynamic'
 import client from '@/lib/clickhouse'
 
 export async function GET() {
+  let interval: ReturnType<typeof setInterval> | null = null
+
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder()
@@ -35,9 +37,13 @@ export async function GET() {
       }
 
       send()
-      const interval = setInterval(send, 5000)
-
-      return () => clearInterval(interval)
+      interval = setInterval(send, 5000)
+    },
+    cancel() {
+      if (interval) {
+        clearInterval(interval)
+        interval = null
+      }
     },
   })
 
