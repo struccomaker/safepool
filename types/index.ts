@@ -123,6 +123,16 @@ export interface User {
   created_at: string
 }
 
+export interface UserWallet {
+  id: string
+  user_id: string
+  wallet_address: string
+  provider: string
+  status: 'provisioned' | 'verified' | 'manual_required'
+  is_default: number
+  created_at: string
+}
+
 // ─── Analytics / Materialized Views ──────────────────────────────────────────
 
 export interface PoolBalance {
@@ -158,7 +168,7 @@ export interface DisasterHeatmapPoint {
 // ─── API Request/Response Shapes ──────────────────────────────────────────────
 
 export interface JoinRequest {
-  wallet_address: string
+  wallet_address?: string
   location_lat: number
   location_lon: number
   household_size?: number

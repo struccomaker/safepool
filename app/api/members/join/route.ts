@@ -5,23 +5,15 @@ import { type NextRequest } from 'next/server'
 import client from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
+import { getLatestUserWalletBinding, syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 import { queryRows } from '@/lib/clickhouse'
+import { isValidWalletAddress, verifyWalletAddressRemotely } from '@/lib/wallet-address'
 
 interface JoinRequest {
-  wallet_address: string
+  wallet_address?: string
   location_lat: number
   location_lon: number
   household_size?: number
-}
-
-function isValidWalletAddress(url: string): boolean {
-  try {
-    new URL(url)
-    return url.startsWith('https://')
-  } catch {
-    return false
-  }
 }
 
 export async function POST(req: NextRequest) {
@@ -40,7 +32,31 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json() as JoinRequest
 
-    if (!isValidWalletAddress(body.wallet_address)) {
+    const requestedWallet = body.wallet_address?.trim()
+    let walletAddress = requestedWallet ?? ''
+
+    if (!walletAddress) {
+      const walletBinding = await getLatestUserWalletBinding(user.id)
+      if (!walletBinding || walletBinding.status !== 'provisioned') {
+        return NextResponse.json({ error: 'Set a valid wallet in /api/wallet/me before joining' }, { status: 400 })
+      }
+      walletAddress = walletBinding.wallet_address
+    } else {
+      walletAddress = await verifyWalletAddressRemotely(walletAddress)
+
+      const { error: updateError } = await supabase.auth.updateUser({
+        data: {
+          ...(user.user_metadata ?? {}),
+          wallet_address: walletAddress,
+        },
+      })
+
+      if (updateError) {
+        return NextResponse.json({ error: `Failed to persist wallet in Supabase: ${updateError.message}` }, { status: 500 })
+      }
+    }
+
+    if (!isValidWalletAddress(walletAddress)) {
       return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 })
     }
 
@@ -72,7 +88,7 @@ export async function POST(req: NextRequest) {
         id,
         pool_id: GLOBAL_POOL_ID,
         user_id: user.id,
-        wallet_address: body.wallet_address,
+        wallet_address: walletAddress,
         location_lat: body.location_lat,
         location_lon: body.location_lon,
         household_size: body.household_size ?? 1,

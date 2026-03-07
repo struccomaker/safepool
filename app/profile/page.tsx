@@ -1,5 +1,6 @@
 // Server Component — user wallet + contribution history
-import type { Contribution } from '@/types'
+import { queryRows } from '@/lib/clickhouse'
+import type { Contribution, UserWallet } from '@/types'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 async function getHistory(): Promise<Contribution[]> {
@@ -13,12 +14,52 @@ async function getHistory(): Promise<Contribution[]> {
   }
 }
 
+async function getWallet(userId?: string): Promise<UserWallet | null> {
+  if (!userId) return null
+
+  try {
+    const rows = await queryRows<{
+      id: string
+      user_id: string
+      wallet_address: string
+      provider: string
+      status: string
+      is_default: number
+      created_at: string
+    }>(
+      `
+      SELECT
+        toString(id) AS id,
+        toString(user_id) AS user_id,
+        wallet_address,
+        provider,
+        toString(status) AS status,
+        is_default,
+        toString(created_at) AS created_at
+      FROM user_wallets
+      WHERE user_id = toUUID({user_id:String})
+        AND is_default = 1
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      { user_id: userId }
+    )
+
+    if (rows.length === 0) return null
+    return rows[0] as UserWallet
+  } catch {
+    return null
+  }
+}
+
 export default async function ProfilePage() {
   const supabase = await createSupabaseServerClient()
   const authPromise = supabase.auth.getUser()
   const historyPromise = getHistory()
   const { data: authData } = await authPromise
+  const walletPromise = getWallet(authData.user?.id)
   const history: Contribution[] = await historyPromise
+  const wallet = await walletPromise
   const user = authData.user
 
   const displayName = typeof user?.user_metadata?.full_name === 'string'
@@ -39,6 +80,14 @@ export default async function ProfilePage() {
           <div className="flex justify-between">
             <span className="text-white/40">Email</span>
             <span>{user?.email ?? '—'}</span>
+          </div>
+          <div className="flex justify-between gap-4">
+            <span className="text-white/40">Wallet</span>
+            <span className="font-mono text-right text-xs break-all">{wallet?.wallet_address ?? 'Not provisioned yet'}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-white/40">Wallet status</span>
+            <span className="capitalize">{wallet?.status ?? 'manual_required'}</span>
           </div>
         </div>
       </div>

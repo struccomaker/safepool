@@ -7,6 +7,7 @@ import { insertRows, queryRows } from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
+import { isValidWalletAddress } from '@/lib/wallet-address'
 
 interface ContributeRequest {
   amount: number
@@ -33,9 +34,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'currency and a positive amount are required' }, { status: 400 })
     }
 
-    const members = await queryRows<{ id: string }>(
+    const members = await queryRows<{ id: string; wallet_address: string }>(
       `
-      SELECT toString(id) AS id
+      SELECT toString(id) AS id, wallet_address
       FROM members
       WHERE pool_id = toUUID({pool_id:String})
         AND user_id = toUUID({user_id:String})
@@ -51,6 +52,11 @@ export async function POST(req: NextRequest) {
 
     if (members.length === 0) {
       return NextResponse.json({ error: 'Join SafePool first before contributing' }, { status: 400 })
+    }
+
+    const memberWallet = members[0].wallet_address
+    if (!isValidWalletAddress(memberWallet)) {
+      return NextResponse.json({ error: 'Your wallet address is invalid. Update it at /api/wallet/me' }, { status: 400 })
     }
 
     // Create ILP incoming payment (falls back to demo mode if not configured)
