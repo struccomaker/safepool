@@ -208,7 +208,7 @@ export default function VotingModal({ open, onClose }: VotingModalProps) {
       ).length ?? 0
 
       setDemoPhase('done')
-      setDemoMsg(`✓ ${passed} proposal${passed !== 1 ? 's' : ''} passed. Parameters updated.`)
+      setDemoMsg(`✓ Proposal${passed !== 1 ? 's' : ''} passed. ${passed} parameters updated.`)
 
     } catch (err) {
       setDemoMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)

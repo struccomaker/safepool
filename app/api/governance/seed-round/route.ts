@@ -15,8 +15,6 @@ const NEW_PROPOSALS: Record<string, number> = {
   impact_radius:       90.0,   // down from 140.45 → tighter radius
 }
 
-// app/api/governance/seed-round/route.ts — updated POST handler
-
 export async function POST(req: NextRequest) {
   try {
 
@@ -27,22 +25,29 @@ export async function POST(req: NextRequest) {
       query: `SELECT proposal_id, parameter FROM safepool.proposals FINAL`,
       format: 'JSONEachRow',
     })
-    const proposals = await pResult.json<{ proposal_id: string; parameter: string }>()
+    const allProposals = await pResult.json<{ proposal_id: string; parameter: string }>()
 
-    if (proposals.length === 0) {
+    if (allProposals.length === 0) {
       return NextResponse.json({ error: 'No proposals found' }, { status: 400 })
     }
+
+    // Assign known parameter names to proposals (fixes corrupted empty-parameter rows)
+    const parameterNames = Object.keys(NEW_PROPOSALS)
+    const proposals = allProposals.slice(0, parameterNames.length).map((p, i) => ({
+      ...p,
+      parameter: parameterNames[i],
+    }))
 
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19)
     const closedAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
       .toISOString().replace('T', ' ').substring(0, 19)
 
-    // Step 2 — Reset ALL proposals back to 'open'
+    // Step 2 — Reset proposals back to 'open' with correct parameter names
     // ReplacingMergeTree: new row with same proposal_id + later submitted_at wins
     const resetRows = proposals.map(p => ({
       proposal_id:     p.proposal_id,
       parameter:       p.parameter,
-      proposed_value:  NEW_PROPOSALS[p.parameter] ?? 0.10,
+      proposed_value:  NEW_PROPOSALS[p.parameter],
       current_value:   0,
       proposed_by:     'demo-seed',
       status:          'open',                  // ← force back to open

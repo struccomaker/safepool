@@ -92,6 +92,26 @@ export default function RightConfigSidebar() {
   const [poolCurrency, setPoolCurrency] = useState('SGD')
   const [walletAddress, setWalletAddress] = useState('')
   const [loadError, setLoadError] = useState('')
+  const [payoutDeduction, setPayoutDeduction] = useState(0)
+
+  useEffect(() => {
+    const handleDeduction = (e: Event) => {
+      const amount = (e as CustomEvent<{ amount: number }>).detail.amount
+      if (Number.isFinite(amount) && amount > 0) {
+        setPayoutDeduction(amount)
+      }
+    }
+    const handleEnd = () => {
+      setPayoutDeduction(0)
+    }
+
+    window.addEventListener('safepool:pool-deducted', handleDeduction)
+    window.addEventListener('safepool:earthquake-end', handleEnd)
+    return () => {
+      window.removeEventListener('safepool:pool-deducted', handleDeduction)
+      window.removeEventListener('safepool:earthquake-end', handleEnd)
+    }
+  }, [])
 
   useEffect(() => {
     let mounted = true
@@ -167,8 +187,15 @@ export default function RightConfigSidebar() {
           <div className="rounded-md border border-white/10 bg-white/5 p-3">
             <p className="text-xs uppercase tracking-[0.15em] text-white/55">Current pool balance</p>
             <div className="mt-1 flex items-end justify-between">
-              <p className="text-lg font-semibold text-white">{poolBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} {poolCurrency}</p>
+              <p className={`text-lg font-semibold ${payoutDeduction > 0 ? 'text-red-400' : 'text-white'}`}>
+                {Math.max(0, poolBalance - payoutDeduction).toLocaleString(undefined, { maximumFractionDigits: 2 })} {poolCurrency}
+              </p>
             </div>
+            {payoutDeduction > 0 && (
+              <p className="mt-1 text-xs text-red-400/70">
+                -{payoutDeduction.toLocaleString(undefined, { maximumFractionDigits: 2 })} {poolCurrency} (disaster payout)
+              </p>
+            )}
             {walletAddress ? <p className="mt-2 truncate text-[11px] text-white/50">Wallet: {walletAddress}</p> : null}
           </div>
 

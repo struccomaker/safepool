@@ -50,21 +50,32 @@ export async function POST() {
 
       // Write to ClickHouse active_parameters if passed
       if (p.proposal_passed === 1) {
+        const now = new Date().toISOString().replace('T', ' ').substring(0, 19)
         await ch.insert({
           table: 'active_parameters',
           values: [{
             parameter:       p.parameter,
             current_value:   p.final_parameter_value,
             source_proposal: p.proposal_id,
+            effective_from:  now,
           }],
           format: 'JSONEachRow',
         })
       }
 
       // Update proposal status in ClickHouse via ReplacingMergeTree insert
+      // Must include submitted_at (version column) with a later timestamp to beat existing rows
+      const closedNow = new Date().toISOString().replace('T', ' ').substring(0, 19)
       await ch.insert({
         table: 'proposals',
-        values: [{ proposal_id: p.proposal_id, status: newStatus, closed_at: Date.now() }],
+        values: [{
+          proposal_id:  p.proposal_id,
+          parameter:    p.parameter,
+          proposed_value: p.final_parameter_value,
+          status:       newStatus,
+          submitted_at: closedNow,
+          closed_at:    closedNow,
+        }],
         format: 'JSONEachRow',
         clickhouse_settings: { input_format_skip_unknown_fields: 1 },
       })
