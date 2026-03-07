@@ -12,7 +12,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json() as ProposeRequest
 
     const id = crypto.randomUUID()
-    const votingEndsAt = new Date(Date.now() + body.voting_days * 24 * 60 * 60 * 1000)
+    const days = body.voting_days ?? 7
+    const votingEndsAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
       .toISOString()
       .replace('T', ' ')
       .replace('Z', '')

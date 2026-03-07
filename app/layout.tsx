@@ -1,24 +1,29 @@
 import type { Metadata } from 'next'
-import { Space_Grotesk } from 'next/font/google'
+import { Inter } from 'next/font/google'
 import './globals.css'
 import LedTicker from '@/components/LedTicker'
 import Navbar from '@/components/Navbar'
+import Providers from '@/components/Providers'
 
-const spaceGrotesk = Space_Grotesk({ subsets: ['latin'] })
+const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'SafePool — Community Emergency Funds',
-  description: 'Pool contributions, automate ILP payouts when disasters strike.',
+  description: 'Automated community emergency fund with Interledger payouts',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${spaceGrotesk.className} min-h-screen bg-[var(--background)] text-[var(--foreground)]`}>
-        {/* NASDAQ-style amber LED ticker at top */}
-        <LedTicker />
-        <Navbar />
-        <main>{children}</main>
+    <html lang="en" className="dark">
+      <body className={`${inter.className} bg-[#050508] text-white min-h-screen`}>
+        <Providers>
+          {/* Physical LED marquee ticker — always at very top */}
+          <LedTicker />
+          {/* Main navigation */}
+          <Navbar />
+          {/* Page content */}
+          <main>{children}</main>
+        </Providers>
       </body>
     </html>
   )
