@@ -49,10 +49,10 @@ export default function Navbar() {
         </div>
 
         <Link
-          href={isHome ? '/dashboard' : '/pools/create'}
+          href={isHome ? '/dashboard' : '/contribute'}
           className="px-4 py-1.5 bg-green-500 hover:bg-green-400 text-black text-sm font-semibold rounded-lg transition-colors"
         >
-          {isHome ? 'Open App' : '+ Pool'}
+          {isHome ? 'Open App' : 'Contribute'}
         </Link>
       </div>
     </nav>
