@@ -1,30 +1,31 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 
-// ── Data shape from /api/earthquake/demo-data ─────────────────────────────────
-
-interface EarthquakeData {
-  poolBalance: number
-  totalPayout: number
-  userContributed: number
-  userShare: number
-  affected: number
-  payoutRatio: number
-}
-
-const FALLBACK_DATA: EarthquakeData = {
-  poolBalance: 0,
-  totalPayout: 0,
-  userContributed: 0,
-  userShare: 0,
-  affected: 1,
-  payoutRatio: 0.3,
-}
-
-const EQ_LOCATION = 'Acre, Brazil'
+// ── Fixed demo event parameters ──────────────────────────────────────────────
+const EQ_LOCATION  = 'Acre, Brazil'
 const EQ_MAGNITUDE = 7.4
+const EQ_LAT       = -9.19
+const EQ_LON       = -70.81
 
-const WALLET_SUFFIXES = ['a3f2', 'c91b', '77de', 'f043', '22ac', 'b1e8', '5d70', '9cc4']
+interface DemoPayoutData {
+  pool_balance: number
+  safety_cap: number
+  severity_multiplier: number
+  affected_count: number
+  total_payout: number
+  per_member_payout: number
+  currency: string
+}
+
+const FALLBACK: DemoPayoutData = {
+  pool_balance: 0,
+  safety_cap: 0.10,
+  severity_multiplier: 0.85,
+  affected_count: 1,
+  total_payout: 0,
+  per_member_payout: 0,
+  currency: 'SGD',
+}
 
 function fmt(n: number) {
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -150,7 +151,7 @@ function AlertPhase() {
   )
 }
 
-function PayoutPhase({ isShrinking, data }: { isShrinking: boolean; data: EarthquakeData }) {
+function PayoutPhase({ isShrinking, data }: { isShrinking: boolean; data: DemoPayoutData }) {
   const [count, setCount] = useState(0)
   const [barW, setBarW] = useState(0)
 
@@ -162,13 +163,13 @@ function PayoutPhase({ isShrinking, data }: { isShrinking: boolean; data: Earthq
     const tick = (now: number) => {
       const p = Math.min((now - start) / duration, 1)
       const eased = p < 1 ? 1 - Math.pow(1 - p, 2) : 1
-      setCount(Math.round(eased * data.affected))
+      setCount(Math.round(eased * data.affected_count))
       if (p < 1) raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     const t = window.setTimeout(() => setBarW(100), 60)
     return () => { cancelAnimationFrame(raf); clearTimeout(t) }
-  }, [isShrinking, data.affected])
+  }, [isShrinking, data.affected_count])
 
   return (
     <>
@@ -202,8 +203,8 @@ function PayoutPhase({ isShrinking, data }: { isShrinking: boolean; data: Earthq
                 className="font-black leading-none tabular-nums"
                 style={{
                   fontSize: '7rem',
-                  color: count === data.affected ? '#fbbf24' : '#ffffff',
-                  textShadow: count === data.affected
+                  color: count === data.affected_count ? '#fbbf24' : '#ffffff',
+                  textShadow: count === data.affected_count
                     ? '0 0 40px rgba(251,191,36,0.8)'
                     : '0 0 20px rgba(255,255,255,0.3)',
                   transition: 'color 0.4s, text-shadow 0.4s',
@@ -212,14 +213,14 @@ function PayoutPhase({ isShrinking, data }: { isShrinking: boolean; data: Earthq
                 {count}
               </div>
               <div className="mt-2 font-mono text-xs uppercase tracking-[0.2em] text-white/40">
-                donors involved in this payout
+                affected members receiving payout
               </div>
             </div>
 
             {/* Right: amount */}
             <div className="flex flex-col items-center justify-center border-l border-amber-500/20 px-8 py-8 shrink-0 text-right">
               <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-400/60 mb-1">Dispatched</div>
-              <div className="text-base font-bold text-white">${fmt(data.totalPayout)}</div>
+              <div className="text-base font-bold text-white">${fmt(data.total_payout)} {data.currency}</div>
             </div>
 
           </div>
@@ -237,26 +238,24 @@ function PayoutPhase({ isShrinking, data }: { isShrinking: boolean; data: Earthq
   )
 }
 
-function ThankyouPhase({ onDismiss, data }: { onDismiss: () => void; data: EarthquakeData }) {
+function ThankyouPhase({ onDismiss, data }: { onDismiss: () => void; data: DemoPayoutData }) {
   const [count, setCount] = useState(0)
   const [pulseRing, setPulseRing] = useState(false)
 
   useEffect(() => {
-    // Count-up animation
     const duration = 1800
     const start = performance.now()
     const tick = (now: number) => {
       const p = Math.min((now - start) / duration, 1)
       const eased = 1 - Math.pow(1 - p, 3)
-      setCount(eased * data.userShare)
+      setCount(eased * data.per_member_payout)
       if (p < 1) requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)
 
-    // Pulse ring on mount
     const t = window.setTimeout(() => setPulseRing(true), 300)
     return () => clearTimeout(t)
-  }, [])
+  }, [data.per_member_payout])
 
   return (
     <>
@@ -300,24 +299,24 @@ function ThankyouPhase({ onDismiss, data }: { onDismiss: () => void; data: Earth
               style={{ background: 'rgba(34,197,94,0.06)' }}
             >
               <div className="mb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-white/40">
-                Your Impact
+                Per-Member Payout
               </div>
               <div className="text-5xl font-black text-green-400 tabular-nums">
                 ${fmt(count)}
               </div>
               <div className="mt-1 text-xs text-white/45">
-                funded from your ${fmt(data.userContributed)} contribution
+                {data.currency} per affected member
               </div>
             </div>
 
             {/* Stats row */}
-            <div className="mb-6 grid grid-cols-3 gap-3 text-center">
+            <div className="mb-4 grid grid-cols-3 gap-3 text-center">
               <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="text-lg font-bold text-white">{data.affected}</div>
-                <div className="text-[10px] text-white/45 uppercase tracking-wider">Families</div>
+                <div className="text-lg font-bold text-white">{data.affected_count}</div>
+                <div className="text-[10px] text-white/45 uppercase tracking-wider">Members</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="text-lg font-bold text-white">${data.totalPayout >= 1000 ? (data.totalPayout / 1000).toFixed(1) + 'k' : fmt(data.totalPayout)}</div>
+                <div className="text-lg font-bold text-white">${fmt(data.total_payout)}</div>
                 <div className="text-[10px] text-white/45 uppercase tracking-wider">Dispatched</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-white/5 p-3">
@@ -326,8 +325,26 @@ function ThankyouPhase({ onDismiss, data }: { onDismiss: () => void; data: Earth
               </div>
             </div>
 
+            {/* Formula breakdown */}
+            <div className="mb-5 rounded-lg border border-white/10 bg-white/5 p-3 text-left">
+              <div className="mb-2 font-mono text-[10px] uppercase tracking-[0.15em] text-white/40">
+                Payout Formula
+              </div>
+              <div className="font-mono text-xs text-green-400/80 leading-relaxed">
+                <div>Pool Balance: ${fmt(data.pool_balance)} {data.currency}</div>
+                <div>Safety Cap: {(data.safety_cap * 100).toFixed(0)}%</div>
+                <div>Severity (M{EQ_MAGNITUDE}): {data.severity_multiplier.toFixed(2)}x</div>
+                <div className="mt-1 border-t border-white/10 pt-1 text-green-400">
+                  = ${fmt(data.pool_balance)} × {(data.safety_cap * 100).toFixed(0)}% × {data.severity_multiplier.toFixed(2)} = ${fmt(data.total_payout)}
+                </div>
+                <div className="text-white/50">
+                  ÷ {data.affected_count} members = ${fmt(data.per_member_payout)} each
+                </div>
+              </div>
+            </div>
+
             <div className="mb-5 text-xs text-white/40">
-              {EQ_LOCATION} · M{EQ_MAGNITUDE} · severity_based distribution · ILP Open Payments
+              {EQ_LOCATION} · M{EQ_MAGNITUDE} · ILP Open Payments
             </div>
 
             <button
@@ -347,7 +364,8 @@ function ThankyouPhase({ onDismiss, data }: { onDismiss: () => void; data: Earth
 
 export default function EarthquakeDemoOverlay() {
   const [phase, setPhase] = useState<Phase>('idle')
-  const [data, setData] = useState<EarthquakeData>(FALLBACK_DATA)
+  const [payoutData, setPayoutData] = useState<DemoPayoutData>(FALLBACK)
+  const payoutDataRef = useRef<DemoPayoutData>(FALLBACK)
   const timersRef = useRef<number[]>([])
 
   const clearTimers = () => {
@@ -362,25 +380,49 @@ export default function EarthquakeDemoOverlay() {
   }
 
   useEffect(() => {
-    const handle = async () => {
+    const handle = () => {
       clearTimers()
       setPhase('alert')
 
-      // Fetch real data from Supabase while the alert banner is showing
-      try {
-        const res = await fetch('/api/earthquake/demo-data')
-        if (res.ok) {
-          const payload = await res.json()
-          setData(payload)
-        }
-      } catch {
-        console.warn('[earthquake] Failed to fetch demo data, using fallback')
-      }
+      // Fetch real payout data from governance parameters + pool balance
+      fetch('/api/disasters/demo-payout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          magnitude: EQ_MAGNITUDE,
+          location_lat: EQ_LAT,
+          location_lon: EQ_LON,
+        }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.error) return
+          const resolved: DemoPayoutData = {
+            pool_balance: Number(data.pool_balance),
+            safety_cap: Number(data.safety_cap),
+            severity_multiplier: Number(data.severity_multiplier),
+            affected_count: Math.max(1, Number(data.affected_count)),
+            total_payout: Number(data.total_payout),
+            per_member_payout: Number(data.per_member_payout),
+            currency: data.currency ?? 'SGD',
+          }
+          payoutDataRef.current = resolved
+          setPayoutData(resolved)
+        })
+        .catch(() => {
+          // Keep fallback values
+        })
 
       const t1 = window.setTimeout(() => setPhase('payout'), 5000)
       const t2 = window.setTimeout(() => {
         setPhase('shrinking')
         window.dispatchEvent(new CustomEvent('safepool:earthquake-resolved'))
+        // Notify sidebar to deduct payout from displayed pool balance
+        window.dispatchEvent(
+          new CustomEvent('safepool:pool-deducted', {
+            detail: { amount: payoutDataRef.current.total_payout },
+          })
+        )
       }, 10000)
       const t3 = window.setTimeout(() => setPhase('thankyou'), 15000)
       const t4 = window.setTimeout(() => {
@@ -401,9 +443,9 @@ export default function EarthquakeDemoOverlay() {
 
   return (
     <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center">
-      {phase === 'alert' && <AlertPhase />}
-      {(phase === 'payout' || phase === 'shrinking') && <PayoutPhase isShrinking={phase === 'shrinking'} data={data} />}
-      {phase === 'thankyou' && <ThankyouPhase onDismiss={dismiss} data={data} />}
+      {phase === 'alert'                          && <AlertPhase />}
+      {(phase === 'payout' || phase === 'shrinking') && <PayoutPhase isShrinking={phase === 'shrinking'} data={payoutData} />}
+      {phase === 'thankyou'                       && <ThankyouPhase onDismiss={dismiss} data={payoutData} />}
     </div>
   )
 }

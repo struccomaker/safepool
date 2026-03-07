@@ -83,7 +83,7 @@ export default function LeftConfigSidebar() {
                   </Badge>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs text-white/70">
-                  <span>USGS · 283 donors</span>
+                  <span>283 donors</span>
                   <span className={brazil.text}>M7.4</span>
                 </div>
               </div>
@@ -107,7 +107,7 @@ export default function LeftConfigSidebar() {
                 </Badge>
               </div>
               <div className="mt-2 flex items-center justify-between text-xs text-white/70">
-                <span>{pin.source} · {pin.donorCount} donors</span>
+                <span>{pin.donorCount} donors</span>
                 <span style={{ color: pin.dotColor }}>{pin.severity}</span>
               </div>
             </div>
