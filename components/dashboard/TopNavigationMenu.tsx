@@ -248,6 +248,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const [profileHistory, setProfileHistory] = useState<ContributionHistoryItem[]>([])
   const [profileCountry, setProfileCountry] = useState('SG')
   const [profileCountrySaving, setProfileCountrySaving] = useState(false)
+  const [mockDonationRunning, setMockDonationRunning] = useState(false)
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -500,6 +501,96 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       setProfileCountrySaving(false)
     }
   }
+
+  const triggerMockDonation = async () => {
+    if (mockDonationRunning) {
+      return
+    }
+
+    setMockDonationRunning(true)
+    try {
+      const response = await fetch('/api/payments/mock-trigger', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      })
+
+      const payload = await response.json()
+      if (!response.ok) {
+        setPaymentPopup({
+          open: true,
+          variant: 'error',
+          title: 'Mock Donation Failed',
+          message: payload.error ?? 'Unable to trigger mock donation payment.',
+        })
+        return
+      }
+
+      if (payload.mode === 'interaction_required' && payload.redirectUrl) {
+        setPaymentPopup({
+          open: true,
+          variant: 'success',
+          title: 'Bootstrap Approval Required',
+          message: payload.message ?? 'Approve once, then keypress donations become instant.',
+        })
+        window.location.href = payload.redirectUrl
+        return
+      }
+
+      setPaymentPopup({
+        open: true,
+        variant: 'success',
+        title: 'Mock Donation Sent',
+        message: `Sent ${payload.amount} ${payload.currency} from test wallet as ${payload.donor_name}.`,
+      })
+    } catch {
+      setPaymentPopup({
+        open: true,
+        variant: 'error',
+        title: 'Mock Donation Failed',
+        message: 'Network error while triggering mock donation.',
+      })
+    } finally {
+      setMockDonationRunning(false)
+    }
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.repeat) {
+        return
+      }
+
+      const target = event.target as HTMLElement | null
+      if (target) {
+        const tagName = target.tagName
+        if (target.isContentEditable || tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') {
+          return
+        }
+      }
+
+      if (event.key !== '1') {
+        return
+      }
+
+      if (!authed) {
+        setPaymentPopup({
+          open: true,
+          variant: 'error',
+          title: 'Sign In Required',
+          message: 'Sign in before triggering mock donations.',
+        })
+        return
+      }
+
+      event.preventDefault()
+      void triggerMockDonation()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+    }
+  }, [authed, mockDonationRunning])
 
   const openDonationModal = async () => {
     setShowDonationModal(true)

@@ -56,6 +56,7 @@ interface RecurringPayload {
   donor_name?: string
   is_anonymous?: boolean
   donor_country?: string
+  mock_bootstrap?: boolean
 }
 
 interface PendingContributionRow {
@@ -481,7 +482,7 @@ export async function GET(req: Request) {
         next_payment_date: addIntervalDate(new Date(), recurringPayload.interval).toISOString(),
         access_token: encryptSecret(finalized.accessToken),
         manage_uri: encryptSecret(finalized.manageUri),
-        status: 'active',
+        status: recurringPayload.mock_bootstrap ? 'paused' : 'active',
         updated_at: new Date().toISOString(),
       }, { onConflict: 'id' })
 
