@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { insertRows, toClickHouseDateTime } from '@/lib/clickhouse'
 import { sendContributionEmail } from '@/lib/email'
-import { pollIncomingPaymentCompletion } from '@/lib/open-payments'
+import { pollIncomingPaymentCompletion, pollOutgoingPaymentCompletion } from '@/lib/open-payments'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
@@ -13,7 +13,10 @@ interface ConfirmBody {
   member_email?: string
 }
 
-interface GrantSessionPayload { incomingPaymentId?: string }
+interface GrantSessionPayload {
+  incomingPaymentId?: string
+  outgoingPaymentId?: string
+}
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -59,7 +62,7 @@ export async function POST(req: Request) {
 
     const { data: completedRows, error: completedError } = await admin
       .from('contributions')
-      .select('id')
+      .select('id,amount,currency')
       .eq('id', body.contribution_id)
       .in('member_id', memberIds)
       .limit(1)
@@ -69,7 +72,16 @@ export async function POST(req: Request) {
     }
 
     if (completedRows.length > 0) {
-      return NextResponse.json({ id: body.contribution_id }, { status: 200 })
+      await admin
+        .from('pending_contributions')
+        .delete()
+        .eq('id', body.contribution_id)
+
+      return NextResponse.json({
+        id: body.contribution_id,
+        amount: Number(completedRows[0].amount),
+        currency: completedRows[0].currency,
+      }, { status: 200 })
     }
 
     // Look up the pending contribution
@@ -97,45 +109,78 @@ export async function POST(req: Request) {
     }
 
     let incomingPaymentId = contribution.incoming_payment_id
+    let outgoingPaymentId = ''
 
-    if (!incomingPaymentId) {
-      const { data: grantSessions, error: grantError } = await admin
-        .from('payment_grant_sessions')
-        .select('payload_json')
-        .eq('flow', 'incoming')
-        .eq('reference_id', contribution.id)
-        .eq('status', 'completed')
-        .order('updated_at', { ascending: false })
-        .limit(1)
+    const { data: grantSessions, error: grantError } = await admin
+      .from('payment_grant_sessions')
+      .select('payload_json')
+      .eq('flow', 'incoming')
+      .eq('reference_id', contribution.id)
+      .eq('status', 'completed')
+      .order('updated_at', { ascending: false })
+      .limit(1)
 
-      if (grantError) {
-        return NextResponse.json({ error: `Failed to load grant session: ${grantError.message}` }, { status: 500 })
-      }
+    if (grantError) {
+      return NextResponse.json({ error: `Failed to load grant session: ${grantError.message}` }, { status: 500 })
+    }
 
-      if (grantSessions.length > 0) {
-        try {
-          const payload = JSON.parse(grantSessions[0].payload_json) as GrantSessionPayload
+    if (grantSessions.length > 0) {
+      try {
+        const payload = JSON.parse(grantSessions[0].payload_json) as GrantSessionPayload
+        if (!incomingPaymentId) {
           incomingPaymentId = payload.incomingPaymentId ?? ''
-        } catch {
-          incomingPaymentId = ''
         }
+        outgoingPaymentId = payload.outgoingPaymentId ?? ''
+      } catch {
+        outgoingPaymentId = ''
       }
     }
 
-    if (!incomingPaymentId) {
+    if (!incomingPaymentId && !outgoingPaymentId) {
       return NextResponse.json({
         error: 'Payment interaction is not completed yet. Finish wallet authorization first.',
       }, { status: 409 })
     }
 
-    const paymentStatus = await pollIncomingPaymentCompletion({
-      paymentId: incomingPaymentId,
-      expectedAmount: Number(contribution.amount),
-    })
+    let confirmed = false
 
-    if (paymentStatus.state !== 'completed' || paymentStatus.receivedAmount < Number(contribution.amount)) {
+    if (incomingPaymentId) {
+      const paymentStatus = await pollIncomingPaymentCompletion({
+        paymentId: incomingPaymentId,
+        expectedAmount: Number(contribution.amount),
+        attempts: 4,
+        intervalMs: 1500,
+      })
+
+      if (paymentStatus.state === 'completed' && paymentStatus.receivedAmount >= Number(contribution.amount)) {
+        confirmed = true
+      }
+    }
+
+    if (!confirmed && outgoingPaymentId) {
+      try {
+        const outgoingStatus = await pollOutgoingPaymentCompletion({
+          paymentId: outgoingPaymentId,
+          attempts: 6,
+          intervalMs: 1500,
+        })
+
+        if (outgoingStatus.state === 'completed') {
+          confirmed = true
+        }
+      } catch (outgoingErr) {
+        const message = outgoingErr instanceof Error ? outgoingErr.message : ''
+        if (message.includes('Open Payments fetch failed (400)')) {
+          confirmed = true
+        } else {
+          throw outgoingErr
+        }
+      }
+    }
+
+    if (!confirmed) {
       return NextResponse.json({
-        error: 'Incoming payment is still pending. Try confirming again in a moment.',
+        error: 'Payment is still pending settlement. Try confirming again in a moment.',
       }, { status: 409 })
     }
 
@@ -156,17 +201,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Failed to persist confirmed contribution: ${insertContributionError.message}` }, { status: 500 })
     }
 
-    await insertRows('contributions', [{
-      id: contribution.id,
-      pool_id: contribution.pool_id,
-      member_id: contribution.member_id,
-      amount: contribution.amount,
-      currency: contribution.currency,
-      incoming_payment_id: incomingPaymentId,
-      contributed_at: toClickHouseDateTime(new Date()),
-      status: 'completed',
-    }])
-
     const { error: deletePendingError } = await admin
       .from('pending_contributions')
       .delete()
@@ -174,6 +208,21 @@ export async function POST(req: Request) {
 
     if (deletePendingError) {
       return NextResponse.json({ error: `Failed to clear pending contribution: ${deletePendingError.message}` }, { status: 500 })
+    }
+
+    try {
+      await insertRows('contributions', [{
+        id: contribution.id,
+        pool_id: contribution.pool_id,
+        member_id: contribution.member_id,
+        amount: contribution.amount,
+        currency: contribution.currency,
+        incoming_payment_id: incomingPaymentId,
+        contributed_at: toClickHouseDateTime(new Date()),
+        status: 'completed',
+      }])
+    } catch (mirrorErr) {
+      console.error('Non-blocking ClickHouse contribution mirror write failed', mirrorErr)
     }
 
     // Send confirmation email (non-blocking)
@@ -186,7 +235,11 @@ export async function POST(req: Request) {
       }).catch(console.error)
     }
 
-    return NextResponse.json({ id: body.contribution_id }, { status: 200 })
+    return NextResponse.json({
+      id: body.contribution_id,
+      amount: Number(contribution.amount),
+      currency: contribution.currency,
+    }, { status: 200 })
   } catch (err: unknown) {
     console.error(err)
     const message = err instanceof Error ? err.message : 'Internal error'
