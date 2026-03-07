@@ -221,6 +221,7 @@ export default function CountryDrilldownMap({ country, onExit }: CountryDrilldow
               'circle-pitch-alignment': 'map',
             },
           })
+
         })
 
         // Disable built-in double-click zoom so we can handle it ourselves
