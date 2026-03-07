@@ -33,6 +33,8 @@ const DAMAGE_OFFSETS = [
   [-0.06, -0.06, 0.4],
 ]
 
+const DRILLDOWN_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark'
+
 function resolveCityPreset(country: GlobeCountrySelection): CityPreset {
   const preset = CITY_PRESETS[country.code.toUpperCase()]
   if (preset) return preset
@@ -79,7 +81,7 @@ export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMap
 
       const map = new maplibregl.Map({
         container: mapContainerRef.current,
-        style: 'https://demotiles.maplibre.org/style.json',
+        style: DRILLDOWN_STYLE_URL,
         center: cityPreset.center,
         zoom: 8.6,
         maxZoom: 14,
