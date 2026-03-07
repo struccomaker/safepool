@@ -60,6 +60,7 @@ const MINI_GODZILLA_ORIENTATIONS = {
 } as const
 
 const MINI_GODZILLA_DIRECTION: keyof typeof MINI_GODZILLA_ORIENTATIONS = 'right'
+const LOGIN_INTENT_KEY = 'safepool:login-intent'
 
 function MiniGodzillaBadge() {
   const [host, setHost] = useState<HTMLDivElement | null>(null)
@@ -201,6 +202,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
 
   const router = useRouter()
   const searchParams = useSearchParams()
+  const hasWelcomeSignal = searchParams.get('auth_welcome') === '1'
   const [showMiniGodzilla, setShowMiniGodzilla] = useState(true)
   const [showWelcomeOverlay, setShowWelcomeOverlay] = useState(false)
   const [welcomeOverlayFading, setWelcomeOverlayFading] = useState(false)
@@ -238,6 +240,13 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     welcomeTimersRef.current.push(fadeTimer, hideTimer)
   }
 
+  const clearWelcomeSignal = () => {
+    const url = new URL(window.location.href)
+    if (!url.searchParams.has('auth_welcome')) return
+    url.searchParams.delete('auth_welcome')
+    router.replace(url.pathname + url.search, { scroll: false })
+  }
+
   useEffect(() => {
     let mounted = true
 
@@ -260,6 +269,12 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
 
       if (mounted) {
         setAuthed(Boolean(user))
+        const hasLoginIntent = sessionStorage.getItem(LOGIN_INTENT_KEY) === '1'
+        if (user && hasLoginIntent && hasWelcomeSignal) {
+          triggerWelcomeOverlay(user)
+          sessionStorage.removeItem(LOGIN_INTENT_KEY)
+          clearWelcomeSignal()
+        }
       }
     }
 
@@ -270,8 +285,11 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (mounted) {
         setAuthed(Boolean(session?.user))
-        if (event === 'SIGNED_IN' && session?.user) {
+        const hasLoginIntent = sessionStorage.getItem(LOGIN_INTENT_KEY) === '1'
+        if (event === 'SIGNED_IN' && session?.user && hasLoginIntent && hasWelcomeSignal) {
           triggerWelcomeOverlay(session.user)
+          sessionStorage.removeItem(LOGIN_INTENT_KEY)
+          clearWelcomeSignal()
         }
       }
     })
@@ -284,7 +302,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       welcomeTimersRef.current = []
       subscription.unsubscribe()
     }
-  }, [])
+  }, [hasWelcomeSignal, router])
 
   useEffect(() => {
     const handleGodzillaSpawned = () => {
@@ -329,6 +347,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     setError('')
     try {
       const supabase = createSupabaseBrowserClient()
+      sessionStorage.setItem(LOGIN_INTENT_KEY, '1')
       const origin = getAuthRedirectOrigin()
       const redirectTo = `${origin}/auth/callback?next=/`
       const { error: authError } = await supabase.auth.signInWithOAuth({
@@ -337,6 +356,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       })
       if (authError) throw authError
     } catch (err: unknown) {
+      sessionStorage.removeItem(LOGIN_INTENT_KEY)
       setError(err instanceof Error ? err.message : 'Unable to start sign-in')
     }
   }

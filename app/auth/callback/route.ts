@@ -30,5 +30,9 @@ export async function GET(request: Request) {
   }
 
   const redirectPath = popupMode ? '/auth/popup-complete' : safeNextPath
-  return NextResponse.redirect(new URL(redirectPath, requestOrigin))
+  const redirectUrl = new URL(redirectPath, requestOrigin)
+  if (code) {
+    redirectUrl.searchParams.set('auth_welcome', '1')
+  }
+  return NextResponse.redirect(redirectUrl)
 }
