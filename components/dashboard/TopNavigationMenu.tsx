@@ -240,6 +240,15 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     welcomeTimersRef.current.push(fadeTimer, hideTimer)
   }
 
+  const dismissWelcomeOverlay = () => {
+    for (const timer of welcomeTimersRef.current) {
+      window.clearTimeout(timer)
+    }
+    welcomeTimersRef.current = []
+    setShowWelcomeOverlay(false)
+    setWelcomeOverlayFading(false)
+  }
+
   const clearWelcomeSignal = () => {
     const url = new URL(window.location.href)
     if (!url.searchParams.has('auth_welcome')) return
@@ -629,9 +638,10 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     <>
       {showWelcomeOverlay && (
         <div
-          className={`pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-zinc-900/62 backdrop-blur-sm transition-opacity duration-700 ${
+          className={`fixed inset-0 z-[70] flex cursor-pointer items-center justify-center bg-zinc-900/62 backdrop-blur-sm transition-opacity duration-700 ${
             welcomeOverlayFading ? 'opacity-0' : 'opacity-100'
           }`}
+          onClick={dismissWelcomeOverlay}
         >
           <p className="px-8 text-center text-4xl font-black uppercase tracking-[0.14em] text-white drop-shadow-[0_8px_28px_rgba(0,0,0,0.6)]">
             Welcome, {welcomeName}
