@@ -62,6 +62,8 @@ const MINI_GODZILLA_DIRECTION: keyof typeof MINI_GODZILLA_ORIENTATIONS = 'right'
 
 function MiniGodzillaBadge() {
   const [host, setHost] = useState<HTMLDivElement | null>(null)
+  const [isHovered, setIsHovered] = useState(false)
+  const [hoverPos, setHoverPos] = useState({ x: 28, y: 28 })
 
   useEffect(() => {
     if (!host) return
@@ -137,7 +139,32 @@ function MiniGodzillaBadge() {
   }, [host])
 
   return (
-    <div className="inline-flex h-14 w-14 items-center justify-center" ref={setHost} />
+    <div
+      className="relative inline-flex h-14 w-14 items-center justify-center"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onMouseMove={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect()
+        setHoverPos({
+          x: event.clientX - rect.left,
+          y: event.clientY - rect.top,
+        })
+      }}
+    >
+      {isHovered && (
+        <span
+          className="pointer-events-none absolute rounded-md border border-white/20 bg-black/85 px-2.5 py-1 text-[10px] font-medium tracking-wide text-white/90 shadow-[0_4px_14px_rgba(0,0,0,0.45)] backdrop-blur-sm"
+          style={{
+            left: hoverPos.x,
+            top: hoverPos.y + 18,
+            transform: 'translate(-50%, 0)',
+          }}
+        >
+          Punch!
+        </span>
+      )}
+      <div className="inline-flex h-14 w-14 items-center justify-center" ref={setHost} />
+    </div>
   )
 }
 
@@ -553,8 +580,12 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       <VotingModal open={showVotingModal} onClose={() => setShowVotingModal(false)} />
 
       {showDonationModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm">
-          <Card className="w-[26rem] border-white/20 bg-black/85 text-white">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm"
+          onClick={() => setShowDonationModal(false)}
+          role="presentation"
+        >
+          <Card className="w-[26rem] border-white/20 bg-black/85 text-white" onClick={(event) => event.stopPropagation()}>
             <CardHeader>
               <CardTitle>Create Donation</CardTitle>
               <CardDescription className="text-white/70">
