@@ -217,38 +217,6 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   }, [])
 
   useEffect(() => {
-    if (searchParams.get('login') === '1' && !authed) {
-      void handleSignIn()
-    }
-  }, [searchParams, authed])
-
-  useEffect(() => {
-    const paymentState = searchParams.get('payment_state')
-    const referenceId = searchParams.get('reference_id')
-
-    if (!paymentState || !referenceId) {
-      return
-    }
-
-    if (paymentState === 'interaction_completed') {
-      void confirmContribution(referenceId)
-      return
-    }
-
-    if (paymentState === 'grant_rejected') {
-      setShowDonationModal(true)
-      setDonationStep('error')
-      setDonationError('Payment approval was rejected in wallet. No funds were transferred.')
-      return
-    }
-
-    if (paymentState === 'recurring_active') {
-      setShowDonationModal(true)
-      setDonationStep('success')
-      setLastFlow('recurring')
-      setSuccessMessage('Recurring contribution setup is active. Scheduled charges will run via cron.')
-    }
-  }, [searchParams])
     const handleGodzillaSpawned = () => {
       setShowMiniGodzilla(false)
     }
@@ -562,13 +530,11 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
                 type="button"
               >
                 Governance
-              </Link>
-              <button className={itemClass} onClick={() => void openDonationModal()} type="button">
               </button>
               <button className={itemClass} onClick={() => setShowVotingModal(true)} type="button">
                 Voting
               </button>
-              <button className={itemClass} onClick={() => setShowDonationModal(true)} type="button">
+              <button className={itemClass} onClick={() => openDonationModal()} type="button">
                 Donation
               </button>
               <button className={itemClass} onClick={() => void openProfileModal()} type="button">
