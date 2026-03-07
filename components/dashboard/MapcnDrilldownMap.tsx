@@ -67,13 +67,7 @@ export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMap
   const [ready, setReady] = useState(false)
 
   const initialCenter = useMemo((): [number, number] => {
-    // Snap to the closest disaster in GLOBAL_DISASTERS for the clicked country
-    const code = country.code.toUpperCase()
-    const snapMap: Record<string, string> = {
-      PH: 'manila-eq', ID: 'jakarta-flood', TH: 'bangkok-flood', NP: 'kathmandu-eq',
-    }
-    const snapped = GLOBAL_DISASTERS.find(d => d.id === snapMap[code])
-    return snapped?.coords ?? [country.center.lng, country.center.lat]
+    return [country.center.lng, country.center.lat]
   }, [country])
 
   const initialZoom = COUNTRY_ZOOM[country.code.toUpperCase()] ?? 8.6
