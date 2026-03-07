@@ -19,6 +19,11 @@ const Globe = dynamic(() => import('react-globe.gl'), {
 const COUNTRY_GEOJSON_URL = 'https://raw.githubusercontent.com/johan/world.geo.json/master/countries.geo.json'
 const DISASTER_COUNTRY_CODES = new Set(['PH', 'ID', 'TH', 'NP', 'JP'])
 
+const BRAZIL_PERM_RINGS = [
+  { lat: -9.19, lng: -70.81, maxR: 6, propagationSpeed: 3,  repeatPeriod: 1500, color: () => '#ffffff' },
+  { lat: -9.19, lng: -70.81, maxR: 3.5, propagationSpeed: 5, repeatPeriod: 1100, color: () => '#d4d4d8' },
+]
+
 const ARCS = [
   { startLat: 37.77,  startLng: -122.42, endLat: 14.60,  endLng: 120.98, color: ['#00ffcc', '#22c55e'] },
   { startLat: 51.51,  startLng: -0.13,   endLat: 14.60,  endLng: 120.98, color: ['#00ffcc', '#22c55e'] },
@@ -321,8 +326,14 @@ export default function GlobeScene({
   const [showFps, setShowFps] = useState(false)
   const [fps, setFps] = useState(0)
   const [userArcs, setUserArcs] = useState<Array<{ id: number; startLat: number; startLng: number; endLat: number; endLng: number; color: [string, string] }>>([])
+  const [brazilEqCylinder, setBrazilEqCylinder] = useState<{ lat: number; lng: number; altitude: number; size: number; color: string; label: string } | null>(null)
+  const [showBrazilPermRings, setShowBrazilPermRings] = useState(false)
   const clickRingCounterRef = useRef(0)
   const userArcCounterRef = useRef(0)
+  const brazilEqTimerRef = useRef<number | null>(null)
+  const brazilEqRingIdsRef = useRef<[number, number] | null>(null)
+  const brazilDropRafRef = useRef<number | null>(null)
+  const eqLockRef = useRef(false)
   const godzillaTemplateRef = useRef<Group | null>(null)
   const godzillaClipsRef = useRef<AnimationClip[]>([])
   const godzillaSpawnRafRef = useRef<number | null>(null)
@@ -493,6 +504,150 @@ export default function GlobeScene({
     window.addEventListener('keydown', handleToggleFps)
     return () => window.removeEventListener('keydown', handleToggleFps)
   }, [])
+
+  useEffect(() => {
+    const handleEarthquakeDemo = (event: KeyboardEvent) => {
+      if (event.key !== '2') return
+      event.preventDefault()
+
+      if (globeRef.current) {
+        const ctrl = globeRef.current.controls()
+        ctrl.autoRotate = false
+        ctrl.enableRotate = false
+        globeRef.current.pointOfView({ lat: -9.19, lng: -70.81, altitude: 0.9 }, 1600)
+      }
+      eqLockRef.current = true
+      setShowBrazilPermRings(false)
+
+      // Pulsing red rings at the Brazil epicentre (two rings, different speeds like existing disasters)
+      const ring1Id = ++clickRingCounterRef.current
+      const ring2Id = ++clickRingCounterRef.current
+      setClickRings((prev) => [
+        ...prev,
+        { id: ring1Id, lat: -9.19, lng: -70.81, maxR: 8,  propagationSpeed: 3,   repeatPeriod: 1000, color: () => '#ef4444' },
+        { id: ring2Id, lat: -9.19, lng: -70.81, maxR: 5,  propagationSpeed: 5,   repeatPeriod: 800,  color: () => '#f87171' },
+      ])
+
+      // Red cylinder at the epicentre
+      setBrazilEqCylinder({
+        lat: -9.19,
+        lng: -70.81,
+        altitude: 0.07,
+        size: 0.35,
+        color: '#ef4444',
+        label: 'M7.4 Earthquake · Acre, Brazil',
+      })
+
+      // Cancel any previous auto-clear
+      if (brazilEqTimerRef.current !== null) clearTimeout(brazilEqTimerRef.current)
+
+      brazilEqRingIdsRef.current = [ring1Id, ring2Id]
+      brazilEqTimerRef.current = window.setTimeout(() => {
+        setClickRings((prev) => prev.filter((r) => r.id !== ring1Id && r.id !== ring2Id))
+        setBrazilEqCylinder(null)
+        brazilEqTimerRef.current = null
+      }, 14000)
+
+      window.dispatchEvent(new CustomEvent('safepool:earthquake-demo'))
+    }
+
+    window.addEventListener('keydown', handleEarthquakeDemo)
+    return () => window.removeEventListener('keydown', handleEarthquakeDemo)
+  }, [])
+
+  useEffect(() => {
+    const handleResolved = () => {
+      // Cancel auto-clear
+      if (brazilEqTimerRef.current !== null) {
+        clearTimeout(brazilEqTimerRef.current)
+        brazilEqTimerRef.current = null
+      }
+      // Remove red rings immediately
+      if (brazilEqRingIdsRef.current) {
+        const [r1, r2] = brazilEqRingIdsRef.current
+        setClickRings((prev) => prev.filter((r) => r.id !== r1 && r.id !== r2))
+        brazilEqRingIdsRef.current = null
+      }
+      // Cancel any in-progress drop animation
+      if (brazilDropRafRef.current !== null) {
+        cancelAnimationFrame(brazilDropRafRef.current)
+        brazilDropRafRef.current = null
+      }
+
+      const START_ALT  = 2.4
+      const TARGET_ALT = 0.07
+      const DROP_MS    = 500
+      const BOUNCE_MS  = 280
+      const DELAY_MS   = 2000  // cylinder appears at t=12s
+
+      window.setTimeout(() => {
+        // Place the green cylinder high above the globe
+        setBrazilEqCylinder({
+          lat: -9.19, lng: -70.81,
+          altitude: START_ALT,
+          size: 0.35,
+          color: '#22c55e',
+          label: 'Relief Dispatched · Acre, Brazil',
+        })
+
+        // Green burst rings fire exactly on impact
+        window.setTimeout(() => {
+          const id1 = ++clickRingCounterRef.current
+          const id2 = ++clickRingCounterRef.current
+          setClickRings((prev) => [
+            ...prev,
+            { id: id1, lat: -9.19, lng: -70.81, maxR: 14, propagationSpeed: 12, repeatPeriod: 99999, color: () => '#4ade80' },
+            { id: id2, lat: -9.19, lng: -70.81, maxR: 8,  propagationSpeed: 18, repeatPeriod: 99999, color: () => '#86efac' },
+          ])
+          window.setTimeout(() => {
+            setClickRings((prev) => prev.filter((r) => r.id !== id1 && r.id !== id2))
+          }, 2200)
+        }, DROP_MS)
+
+        // Animate altitude: cubic ease-in drop → bounce settle
+        const startTime = performance.now()
+        const animate = (now: number) => {
+          const elapsed = now - startTime
+          let alt: number
+
+          if (elapsed < DROP_MS) {
+            const p = elapsed / DROP_MS
+            alt = START_ALT + (TARGET_ALT - START_ALT) * (p * p * p)
+          } else if (elapsed < DROP_MS + BOUNCE_MS) {
+            const p = (elapsed - DROP_MS) / BOUNCE_MS
+            alt = TARGET_ALT - Math.sin(p * Math.PI) * 0.045 * (1 - p * 0.6)
+          } else {
+            setBrazilEqCylinder((prev) => prev ? { ...prev, altitude: TARGET_ALT } : prev)
+            setShowBrazilPermRings(true)
+            brazilDropRafRef.current = null
+            return
+          }
+
+          setBrazilEqCylinder((prev) => prev ? { ...prev, altitude: alt } : prev)
+          brazilDropRafRef.current = requestAnimationFrame(animate)
+        }
+
+        brazilDropRafRef.current = requestAnimationFrame(animate)
+      }, DELAY_MS)
+    }
+
+    window.addEventListener('safepool:earthquake-resolved', handleResolved)
+    return () => window.removeEventListener('safepool:earthquake-resolved', handleResolved)
+  }, [])
+
+  useEffect(() => {
+    const handleEnd = () => {
+      eqLockRef.current = false
+      if (globeRef.current) {
+        const ctrl = globeRef.current.controls()
+        ctrl.enableRotate = true
+        ctrl.autoRotate = true
+        ctrl.autoRotateSpeed = monochrome ? 0.22 : 0.4
+      }
+    }
+    window.addEventListener('safepool:earthquake-end', handleEnd)
+    return () => window.removeEventListener('safepool:earthquake-end', handleEnd)
+  }, [monochrome])
 
   useEffect(() => {
     const handleSpawnArc = (event: KeyboardEvent) => {
@@ -693,7 +848,7 @@ export default function GlobeScene({
       return
     }
 
-    if (!selectedCountryCode) {
+    if (!selectedCountryCode && !eqLockRef.current) {
       ctrl.autoRotate = true
       ctrl.autoRotateSpeed = monochrome ? 0.22 : 0.4
     }
@@ -701,8 +856,8 @@ export default function GlobeScene({
 
   const arcsData = [...(monochrome ? monoArcs : ARCS), ...userArcs]
   const baseRings = monochrome ? monoRings : RINGS
-  const ringsData = [...baseRings, ...clickRings]
-  const pointsData = [...(monochrome ? monoPoints : POINTS), ...PAYOUT_CYLINDERS]
+  const ringsData = [...baseRings, ...clickRings, ...(showBrazilPermRings ? BRAZIL_PERM_RINGS : [])]
+  const pointsData = [...(monochrome ? monoPoints : POINTS), ...PAYOUT_CYLINDERS, ...(brazilEqCylinder ? [brazilEqCylinder] : [])]
 
   const pointerEventsFilter = (object: object, data?: object) => {
     if (!isCountryFeature(data) || !globeRef.current) {

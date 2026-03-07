@@ -5,6 +5,7 @@ import GlobeCenterPanel from '@/components/dashboard/GlobeCenterPanel'
 import LeftConfigSidebar from '@/components/dashboard/LeftConfigSidebar'
 import RightConfigSidebar from '@/components/dashboard/RightConfigSidebar'
 import TopNavigationMenu from '@/components/dashboard/TopNavigationMenu'
+import EarthquakeDemoOverlay from '@/components/EarthquakeDemoOverlay'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 
@@ -44,6 +45,7 @@ export default function DashboardPage() {
     <Suspense fallback={<PageLoader />}>
       <div className="relative h-[100dvh] w-full overflow-hidden bg-[#050508] text-white">
         <GlobeCenterPanel onDrilldownChange={setIsDrilldownOpen} onGlobeReadyChange={setIsGlobeReady} />
+        <EarthquakeDemoOverlay />
 
         {!isGlobeReady && <PageLoader overlay />}
 
