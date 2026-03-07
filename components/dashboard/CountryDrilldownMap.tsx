@@ -55,12 +55,12 @@ function buildRings(
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
-interface MapcnDrilldownMapProps {
+interface CountryDrilldownMapProps {
   country: GlobeCountrySelection
   onExit:  () => void
 }
 
-export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMapProps) {
+export default function CountryDrilldownMap({ country, onExit }: CountryDrilldownMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapRef          = useRef<MapLibreMap | null>(null)
   const pulseRafRef     = useRef<number | null>(null)

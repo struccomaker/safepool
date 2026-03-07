@@ -2,7 +2,7 @@
 
 import { lazy, useEffect, useState } from 'react'
 import type { GlobeCountrySelection } from '@/components/GlobeScene'
-import MapcnDrilldownMap from '@/components/dashboard/MapcnDrilldownMap'
+import CountryDrilldownMap from '@/components/dashboard/CountryDrilldownMap'
 import { Badge } from '@/components/ui/badge'
 
 const GlobeScene = lazy(() => import('@/components/GlobeScene'))
@@ -41,7 +41,7 @@ export default function GlobeCenterPanel({ onDrilldownChange, onGlobeReadyChange
       </div>
       <div className="h-full w-full">
         {isDrilldownOpen && selectedCountry ? (
-          <MapcnDrilldownMap country={selectedCountry} onExit={() => setSelectedCountry(null)} />
+          <CountryDrilldownMap country={selectedCountry} onExit={() => setSelectedCountry(null)} />
         ) : (
           <GlobeScene
             activeCountryCode={null}
