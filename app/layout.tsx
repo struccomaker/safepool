@@ -17,7 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050508] text-white min-h-screen`}>
         <Providers>
-          <LedTicker />
+          {/* <LedTicker /> */}
           <main>{children}</main>
         </Providers>
       </body>

@@ -1,9 +1,10 @@
 'use client'
 
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
+const POOL_NAME = 'Metro Manila Emergency Pool'
 const MAX_DONATIONS = 6
 const MIN_DONATION_INTERVAL_MS = 5000
 const MAX_DONATION_INTERVAL_MS = 20000
@@ -12,7 +13,7 @@ const FIRST_NAMES = ['Maria', 'Jose', 'Ana', 'Luis', 'Carmen', 'Miguel', 'Aisha'
 const LAST_NAMES = ['Santos', 'Reyes', 'Dela Cruz', 'Garcia', 'Lopez', 'Khan', 'Patel', 'Fernandez', 'Tan', 'Mendoza']
 
 interface DonationItem {
-  id: string
+  id: number
   member: string
   amount: number
   receivedAt: number
@@ -26,15 +27,7 @@ interface DonationCreatedEventDetail {
   anonymous: boolean
 }
 
-interface HistoryEntry {
-  id: string
-  amount: number
-  currency: string
-  contributed_at: string
-  status: string
-}
-
-function buildDonation(sequence: number, id: string): DonationItem {
+function buildDonation(sequence: number, id: number): DonationItem {
   const firstName = FIRST_NAMES[sequence % FIRST_NAMES.length]
   const lastName = LAST_NAMES[(sequence * 3) % LAST_NAMES.length]
   const amount = (((sequence * 7) % 50) + 1) * 10
@@ -56,68 +49,13 @@ export default function RightConfigSidebar() {
   const sequenceRef = useRef(MAX_DONATIONS)
   const nextIdRef = useRef(MAX_DONATIONS + 1)
   const timeoutRef = useRef<number | null>(null)
-  const seenIdsRef = useRef(new Set<string>())
   const [tick, setTick] = useState(MAX_DONATIONS)
   const [donations, setDonations] = useState<DonationItem[]>(() => {
-    const seed = Array.from({ length: MAX_DONATIONS }, (_, index) => {
-      const id = `fake-${index + 1}`
-      return buildDonation(index + 1, id)
-    }).reverse()
-    for (const d of seed) seenIdsRef.current.add(d.id)
+    const seed = Array.from({ length: MAX_DONATIONS }, (_, index) => buildDonation(index + 1, index + 1)).reverse()
     return seed
   })
   const [poolBalance, setPoolBalance] = useState(() => donations.reduce((sum, donation) => sum + donation.amount, 0))
 
-  // Seed with real contribution history on mount
-  useEffect(() => {
-    let cancelled = false
-
-    const fetchHistory = async () => {
-      try {
-        const res = await fetch('/api/global/payments/history', { cache: 'no-store' })
-        if (!res.ok) return
-
-        const history = (await res.json()) as HistoryEntry[]
-        if (cancelled || history.length === 0) return
-
-        const realDonations: DonationItem[] = history
-          .filter((entry) => entry.status === 'completed')
-          .slice(0, MAX_DONATIONS)
-          .map((entry) => ({
-            id: entry.id,
-            member: `$${Number(entry.amount).toFixed(0)} donor`,
-            amount: Number(entry.amount),
-            receivedAt: new Date(entry.contributed_at).getTime(),
-            recurring: false,
-          }))
-
-        if (realDonations.length > 0) {
-          for (const d of realDonations) seenIdsRef.current.add(d.id)
-          setDonations((current) => {
-            const merged = [...realDonations, ...current]
-            // Deduplicate by id
-            const seen = new Set<string>()
-            return merged.filter((d) => {
-              if (seen.has(d.id)) return false
-              seen.add(d.id)
-              return true
-            }).slice(0, MAX_DONATIONS)
-          })
-          setPoolBalance((current) => current + realDonations.reduce((sum, d) => sum + d.amount, 0))
-        }
-      } catch {
-        // Silently fail — fake data still shows
-      }
-    }
-
-    void fetchHistory()
-
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  // Fake donation generation timer (demo fallback)
   useEffect(() => {
     let cancelled = false
 
@@ -127,7 +65,7 @@ export default function RightConfigSidebar() {
         if (cancelled) return
 
         sequenceRef.current += 1
-        const nextDonation = buildDonation(sequenceRef.current, `fake-${nextIdRef.current}`)
+        const nextDonation = buildDonation(sequenceRef.current, nextIdRef.current)
         nextIdRef.current += 1
 
         setTick(sequenceRef.current)
@@ -148,7 +86,6 @@ export default function RightConfigSidebar() {
     }
   }, [])
 
-  // Listen for real donation events from the donation modal
   useEffect(() => {
     const handleManualDonation = (event: Event) => {
       const detail = (event as CustomEvent<DonationCreatedEventDetail>).detail
@@ -170,7 +107,7 @@ export default function RightConfigSidebar() {
           : trimmedWalletId
 
       const donation: DonationItem = {
-        id: `manual-${nextIdRef.current}`,
+        id: nextIdRef.current,
         member: detail.anonymous ? '' : `Wallet ${walletLabel}`,
         amount,
         receivedAt: Date.now(),
@@ -198,26 +135,41 @@ export default function RightConfigSidebar() {
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             Donation Notifications
-            <Badge variant="outline">Incoming</Badge>
+            <Badge className="gap-1 border-0 bg-white/10 text-white" variant="outline">
+              <span className={`h-2 w-2 rounded-full ${livePulse}`} />
+              Live
+            </Badge>
           </CardTitle>
-          <CardDescription>Real-time contributions into the SafePool global fund.</CardDescription>
+          <CardDescription>Deterministic feed simulating real-time contributions into one active pool.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {donations.map((donation) => (
-            <div className="rounded-md border border-white/10 bg-white/5 p-3" key={`${donation.member}-${donation.time}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold text-white">{donation.member}</p>
-                  <p className="text-xs text-white/65">{donation.pool}</p>
-                </div>
-                <span className="text-sm font-semibold text-white">{donation.amount}</span>
-              </div>
-              <p className="mt-2 text-xs text-white/65">{donation.time}</p>
+          <div className="rounded-md border border-white/10 bg-white/5 p-3">
+            <p className="text-xs uppercase tracking-[0.15em] text-white/55">Current pool balance</p>
+            <div className="mt-1 flex items-end justify-between">
+              <p className="text-lg font-semibold text-white">${poolBalance.toLocaleString()}</p>
             </div>
-          ))}
-          <Button className="w-full" variant="secondary">
-            View All Donations
-          </Button>
+          </div>
+
+          <div className="max-h-[28rem] space-y-3 overflow-hidden">
+            {donations.map((donation, index) => (
+              <div
+                className="rounded-md border border-white/10 bg-white/5 p-3 transition-opacity duration-500"
+                key={donation.id}
+                style={{ opacity: Math.max(0.22, 1 - index * 0.14) }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    {donation.member ? <p className="text-sm font-semibold text-white">{donation.member}</p> : null}
+                    {donation.recurring ? <p className="mt-1 text-[10px] uppercase tracking-wide text-cyan-300">Recurring</p> : null}
+                  </div>
+                  <span className="text-sm font-semibold text-green-300">${donation.amount.toFixed(2)}</span>
+                </div>
+                <p className="mt-2 text-xs text-white/65">
+                  {index === 0 ? 'just now' : `${Math.max(1, Math.floor((Date.now() - donation.receivedAt) / 1000))}s ago`}
+                </p>
+              </div>
+            ))}
+          </div>
         </CardContent>
       </Card>
     </aside>

@@ -77,9 +77,9 @@ export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMap
     const PERIOD = 1600
     const t0 = performance.now()
     function tick(now: number) {
-      const t       = ((now - t0) % PERIOD) / PERIOD
+      const t       = Math.min(((now - t0) % PERIOD) / PERIOD, 1)
       const radius  = 8 + t * 38
-      const opacity = 1 - t
+      const opacity = Math.max(0, 1 - t)
       if (map.getLayer('epicentre-pulse')) {
         map.setPaintProperty('epicentre-pulse', 'circle-radius',         radius)
         map.setPaintProperty('epicentre-pulse', 'circle-stroke-opacity', opacity)
@@ -106,13 +106,27 @@ export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMap
         pitch:      0,
         bearing:    0,
         dragRotate: false,
+        attributionControl: false,
       })
 
       mapRef.current = map
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
+
+      const enforceCompactAttribution = () => {
+        const attributionElement = map.getContainer().querySelector('.maplibregl-ctrl-attrib')
+        if (!attributionElement) return
+
+        attributionElement.classList.add('maplibregl-compact')
+        attributionElement.classList.remove('maplibregl-compact-show')
+      }
+
+      window.setTimeout(enforceCompactAttribution, 0)
 
       map.on('load', () => {
         if (cancelled) return
+
+        enforceCompactAttribution()
 
         // Damage rings (outer → inner)
         map.addSource('damage-rings', { type: 'geojson', data: damageRingsData })
@@ -181,7 +195,7 @@ export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMap
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <div className="h-full w-full" ref={mapContainerRef} />
+      <div className="drilldown-map h-full w-full" ref={mapContainerRef} />
 
       <div className="pointer-events-none absolute left-4 top-4 z-20 max-w-[300px] rounded-xl border border-white/20 bg-black/75 p-4 backdrop-blur">
         <div className="mb-3 flex items-center gap-2">

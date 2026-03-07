@@ -2,7 +2,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { GlobeMethods } from 'react-globe.gl'
-import { Progress } from '@/components/ui/progress'
 
 const Globe = dynamic(() => import('react-globe.gl'), {
   ssr: false,
@@ -217,6 +216,7 @@ interface GlobeSceneProps {
   className?: string
   onCountryDrilldown?: (selection: GlobeCountrySelection) => void
   activeCountryCode?: string | null
+  onGlobeReady?: () => void
 }
 
 export default function GlobeScene({
@@ -224,6 +224,7 @@ export default function GlobeScene({
   className = '',
   onCountryDrilldown,
   activeCountryCode = null,
+  onGlobeReady,
 }: GlobeSceneProps) {
   const wrapperRef = useRef<HTMLDivElement>(null)
   const globeRef = useRef<GlobeMethods | undefined>(undefined)
@@ -232,8 +233,6 @@ export default function GlobeScene({
   const [countries, setCountries] = useState<CountryFeature[]>([])
   const [hoveredCountryCode, setHoveredCountryCode] = useState<string | null>(null)
   const [selectedCountryCode, setSelectedCountryCode] = useState<string | null>(activeCountryCode)
-  const [isGlobeReady, setIsGlobeReady] = useState(false)
-  const [loadingProgress, setLoadingProgress] = useState(14)
 
   const monoArcs = useMemo(
     () =>
@@ -360,22 +359,6 @@ export default function GlobeScene({
     }
   }, [hoveredCountryCode, selectedCountryCode, monochrome])
 
-  useEffect(() => {
-    if (isGlobeReady) {
-      setLoadingProgress(100)
-      return
-    }
-
-    const interval = window.setInterval(() => {
-      setLoadingProgress((current) => {
-        if (current >= 91) return 91
-        return current + 3
-      })
-    }, 160)
-
-    return () => window.clearInterval(interval)
-  }, [isGlobeReady])
-
   const arcsData = monochrome ? monoArcs : ARCS
   const ringsData = monochrome ? monoRings : RINGS
   const pointsData = monochrome ? monoPoints : POINTS
@@ -417,14 +400,6 @@ export default function GlobeScene({
 
   return (
     <div className={`relative ${className}`.trim()} ref={wrapperRef}>
-      {!isGlobeReady && (
-        <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center bg-black/70">
-          <div className="w-[300px] rounded-xl border border-white/20 bg-black/85 p-4 backdrop-blur">
-            <p className="mb-3 text-sm text-white/75">Initializing globe layers...</p>
-            <Progress value={loadingProgress} />
-          </div>
-        </div>
-      )}
       <Globe
         ref={globeRef}
         width={size.width}
@@ -456,7 +431,7 @@ export default function GlobeScene({
         pointRadius="size"
         pointResolution={8}
         pointLabel="label"
-        onGlobeReady={() => setIsGlobeReady(true)}
+        onGlobeReady={onGlobeReady}
         polygonsData={countries}
         polygonGeoJsonGeometry="geometry"
         polygonAltitude={(polygon) => {
