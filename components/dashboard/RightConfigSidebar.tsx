@@ -161,7 +161,6 @@ export default function RightConfigSidebar() {
               Live
             </Badge>
           </CardTitle>
-          <CardDescription>Live contributions and pool balance from SafePool backend data sources.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="rounded-md border border-white/10 bg-white/5 p-3">

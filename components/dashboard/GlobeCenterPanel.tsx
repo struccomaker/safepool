@@ -36,7 +36,7 @@ export default function GlobeCenterPanel({ onDrilldownChange, onGlobeReadyChange
       <div className="pointer-events-none absolute inset-0 z-10 bg-[radial-gradient(circle_at_center,transparent_40%,rgba(0,0,0,0.82)_100%)]" />
       <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2">
         <Badge variant="outline" className="border-white/30 bg-black/40 px-4 py-1 text-white/85 backdrop-blur">
-          {isDrilldownOpen ?  'Damage Heatmap' : 'SAFEPOOL'}
+          {isDrilldownOpen ?  'Disaster Heatmap' : 'SAFEPOOL'}
         </Badge>
       </div>
       <div className="h-full w-full">
