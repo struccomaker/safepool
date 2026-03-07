@@ -1,6 +1,6 @@
 # SafePool Project Snapshot
 
-Current state of the SafePool codebase (HACKOMANIA 2026), including stack, coding practices, shipped features, and overlapping/conflicting implementations.
+Current state of the SafePool codebase (HACKOMANIA 2026), including stack, coding practices, shipped features, and active routes.
 
 ---
 
@@ -40,35 +40,30 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 
 ### Core
 - **Immersive globe landing/app shell** — Interactive 3D globe with country hover/click and drill-down entry (`components/GlobeScene.tsx`, `components/dashboard/GlobeCenterPanel.tsx`)
-- **City drill-down impact map** — Country selection opens MapLibre city map with damage heat overlays (`components/dashboard/MapcnDrilldownMap.tsx`)
-- **Global emergency fund model** — Single global pool architecture (`lib/global-pool.ts`, `/pool`, `/contribute`, `/members`, `/governance`)
-- **Contribution flow** — API + confirmation + optional email receipt (`app/api/payments/contribute/route.ts`, `app/api/payments/confirm/route.ts`)
+- **Global emergency fund model** — Single global pool architecture (`lib/global-pool.ts`, `app/api/global/*`)
+- **Contribution and payout backend** — Open Payments contribute/confirm/callback/status + recurring and payout cron flows (`app/api/payments/*`, `app/api/recurring/create/route.ts`, `app/api/cron/*`)
 - **Payment continuation + status APIs** — Callback continuation and authenticated payment status checks (`app/api/payments/callback/route.ts`, `app/api/payments/status/route.ts`)
 - **Wallet onboarding pipeline** — Canonical user wallet fetch/update endpoint (`app/api/wallet/me/route.ts`)
 - **Recurring contributions** — Recurring grant creation + scheduled processing (`app/api/recurring/create/route.ts`, `app/api/cron/process-recurring/route.ts`)
 - **Disaster ingestion & trigger processing** — Polls USGS/GDACS/OWM and processes payouts via cron (`app/api/cron/poll-disasters/route.ts`, `app/api/cron/process-payouts/route.ts`)
 - **Manual disaster simulation** — Manual event creation with immediate trigger evaluation (`app/api/disasters/manual-trigger/route.ts`)
-- **Governance** — Proposals and voting APIs + UI (`app/api/governance/*`, `app/governance/page.tsx`)
-- **Analytics dashboard** — Fund balance, contribution trends, payout stats (`app/analytics/page.tsx`, `app/api/analytics/*`)
-- **Live disaster feed** — List + Leaflet map + click-through to city drill-down (`app/disasters/page.tsx`)
+- **Governance backend** — Proposal and voting APIs (`app/api/governance/*`, `app/api/global/governance/proposals/route.ts`)
+- **Analytics backend** — Fund balance, contribution trend, payout stats, disaster-map APIs (`app/api/analytics/*`)
 - **SSE contribution stream** — Backend endpoint for live ticker (`app/api/sse/contributions/route.ts`)
-- **Auth flow** — Supabase Google sign-in from top navigation + callback (`components/dashboard/TopNavigationMenu.tsx`, `app/auth/callback/route.ts`)
+- **Auth flow** — Supabase OAuth callback + protected profile page (`app/auth/callback/route.ts`, `app/profile/page.tsx`)
+- **Legacy auth endpoint retired** — NextAuth handler remains only as explicit deprecation response (`app/api/auth/[...nextauth]/route.ts`)
 
 ---
 
 ## Canonical Routes
 
-The app is now **single-pool + single-map-first**. The only map entry page is the root route (`/`), and there are no multi-pool API routes.
+The app is now **single-pool + single-map-first**. The only map entry page is the root route (`/`), and multi-pool routes are removed.
 
 ### App Routes
 
 - `/` — Main map page (primary and only map entry)
-- `/pool` — Global fund overview
-- `/contribute` — Contribution flow (protected)
-- `/governance` — Proposals and voting
-- `/members` — Global member list
 - `/profile` — User profile (protected)
-- `/auth/callback` — OAuth callback handler
+- `/auth/callback` — Supabase OAuth callback handler
 - `/auth/popup-complete` — OAuth popup completion
 
 ### API Routes
@@ -97,6 +92,7 @@ The app is now **single-pool + single-map-first**. The only map entry page is th
 - `/api/analytics/payout-stats` — Payout statistics
 - `/api/analytics/disaster-map` — Disaster geospatial analytics
 - `/api/sse/contributions` — Live contribution SSE stream
+- `/api/auth/[...nextauth]` — Deprecated endpoint; returns HTTP 410 with Supabase migration message
 
 ---
 
