@@ -1,8 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
-import LedTicker from '@/components/LedTicker'
-import Navbar from '@/components/Navbar'
+import 'maplibre-gl/dist/maplibre-gl.css'
 import Providers from '@/components/Providers'
 
 const inter = Inter({ subsets: ['latin'] })
@@ -17,11 +16,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050508] text-white min-h-screen`}>
         <Providers>
-          {/* Physical LED marquee ticker — always at very top */}
-          <LedTicker />
-          {/* Main navigation */}
-          <Navbar />
-          {/* Page content */}
           <main>{children}</main>
         </Providers>
       </body>
