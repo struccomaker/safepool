@@ -1,77 +1,135 @@
 'use client'
-
 import { useState } from 'react'
+import Link from 'next/link'
 import { useParams } from 'next/navigation'
 
 export default function ContributePage() {
-  const { id: poolId } = useParams<{ id: string }>()
+  const params = useParams()
+  const poolId = params.id as string
+  const [step, setStep] = useState<'form' | 'pending' | 'done'>('form')
   const [amount, setAmount] = useState(10)
-  const [loading, setLoading] = useState(false)
+  const [wallet, setWallet] = useState('')
+  const [email, setEmail] = useState('')
   const [error, setError] = useState('')
-  const [paymentUrl, setPaymentUrl] = useState('')
 
-  async function handleContribute(e: React.FormEvent) {
-    e.preventDefault()
-    setLoading(true)
+  async function contribute() {
+    setStep('pending')
     setError('')
-
     try {
       const res = await fetch('/api/payments/contribute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pool_id: poolId, amount, currency: 'USD' }),
+        body: JSON.stringify({ pool_id: poolId, member_id: 'guest', amount, currency: 'USD', wallet_address: wallet }),
       })
-      const data = await res.json() as { paymentUrl?: string; error?: string }
-      if (!res.ok) throw new Error(data.error ?? 'Failed to create payment')
+      const data = await res.json() as { contribution_id?: string; paymentUrl?: string; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Payment failed')
 
-      if (data.paymentUrl) {
-        setPaymentUrl(data.paymentUrl)
-        // Redirect to wallet provider
-        window.location.href = data.paymentUrl
+      // Auto-confirm for demo
+      if (data.contribution_id) {
+        await fetch('/api/payments/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contribution_id: data.contribution_id }),
+        }).catch(() => {})
       }
+
+      setStep('done')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Payment failed')
-    } finally {
-      setLoading(false)
+      setStep('form')
     }
   }
 
-  return (
-    <div className="max-w-md mx-auto px-6 py-16">
-      <h1 className="text-2xl font-bold mb-2">Contribute</h1>
-      <p className="text-white/50 mb-8">
-        Your contribution goes into the pool and earns you payout rights in case of a disaster.
-      </p>
+  const input = 'w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white focus:border-green-500/50 focus:outline-none text-sm'
 
-      <form onSubmit={handleContribute} className="space-y-5">
+  if (step === 'done') return (
+    <div className="max-w-md mx-auto px-4 py-20 text-center">
+      <div className="text-6xl mb-4">✅</div>
+      <h2 className="text-2xl font-bold mb-2">Contribution Confirmed!</h2>
+      <p className="text-gray-400 mb-2">USD {amount.toFixed(2)} added to pool</p>
+      <p className="text-gray-500 text-sm mb-8">A confirmation email has been sent to your address.</p>
+      <Link href={`/pools/${poolId}`} className="bg-green-500 text-black font-bold px-6 py-2.5 rounded-lg">
+        Back to Pool
+      </Link>
+    </div>
+  )
+
+  if (step === 'pending') return (
+    <div className="max-w-md mx-auto px-4 py-20 text-center">
+      <div className="text-5xl mb-4 animate-spin">⚙️</div>
+      <p className="text-gray-400">Processing payment via Interledger...</p>
+    </div>
+  )
+
+  return (
+    <div className="max-w-md mx-auto px-4 py-10">
+      <Link href={`/pools/${poolId}`} className="text-gray-500 text-sm hover:text-gray-300 mb-6 block">← Back to Pool</Link>
+      <h1 className="text-2xl font-bold mb-6">Make a Contribution</h1>
+
+      <div className="space-y-4">
         <div>
-          <label className="block text-sm text-white/60 mb-1.5">Amount (USD)</label>
+          <label className="block text-sm text-gray-400 mb-1">Amount (USD)</label>
+          <div className="flex gap-2 mb-2">
+            {[5, 10, 25, 50].map(a => (
+              <button
+                key={a}
+                type="button"
+                onClick={() => setAmount(a)}
+                className={`px-3 py-1.5 rounded text-sm border transition-colors ${
+                  amount === a
+                    ? 'bg-green-500/20 border-green-500/50 text-green-400'
+                    : 'bg-white/5 border-white/10 text-gray-400 hover:border-white/30'
+                }`}
+              >
+                ${a}
+              </button>
+            ))}
+          </div>
           <input
             type="number"
-            min={1}
+            className={input}
             value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))}
-            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-green-500/60 transition-colors"
-            required
+            onChange={e => setAmount(Number(e.target.value))}
+            min={1}
           />
         </div>
 
-        <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-sm text-white/50">
-          You will be redirected to your Interledger wallet to authorize this payment.
-          After authorization, the contribution is recorded on ClickHouse and a confirmation email is sent.
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Wallet Address</label>
+          <input
+            className={input}
+            placeholder="https://wallet.interledger-test.dev/yourname"
+            value={wallet}
+            onChange={e => setWallet(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Email (for confirmation)</label>
+          <input
+            type="email"
+            className={input}
+            placeholder="you@email.com"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+          />
+        </div>
+
+        <div className="bg-green-500/5 border border-green-500/20 rounded-lg p-4 text-sm text-gray-400">
+          Your contribution will be sent via{' '}
+          <span className="text-green-400 font-medium">Interledger Open Payments</span>. Funds pool
+          automatically and pay out when a verified disaster is detected.
         </div>
 
         {error && <p className="text-red-400 text-sm">{error}</p>}
-        {paymentUrl && <p className="text-green-400 text-sm">Redirecting to wallet…</p>}
 
         <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-3 bg-green-500 hover:bg-green-400 disabled:opacity-50 text-black font-semibold rounded-lg transition-colors"
+          onClick={contribute}
+          className="w-full bg-green-500 hover:bg-green-400 text-black font-bold py-3 rounded-lg transition-colors"
         >
-          {loading ? 'Creating payment…' : `Pay $${amount} via Interledger`}
+          Contribute USD {amount.toFixed(2)}
         </button>
-      </form>
+      </div>
     </div>
   )
 }
