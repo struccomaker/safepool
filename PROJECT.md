@@ -39,7 +39,8 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 ## Current Features
 
 ### Core
-- **Immersive globe landing/app shell** — Interactive 3D globe with country hover/click and drill-down entry (`components/GlobeScene.tsx`, `components/dashboard/GlobeCenterPanel.tsx`)
+- **Immersive globe landing/app shell** — Interactive 3D globe with country hover/click and drill-down entry (`components/GlobeScene.tsx`, `components/dashboard/GlobeCenterPanel.tsx`, `components/dashboard/CountryDrilldownMap.tsx`)
+- **Godzilla interaction layer (demo UX)** — Right-click spawn on globe surface, click-to-clear, keyboard controls (`W` forward, `A/D` rotate), optional FPS overlay (`~`), and top-nav mini preview state sync (`components/GlobeScene.tsx`, `components/dashboard/TopNavigationMenu.tsx`)
 - **Global emergency fund model** — Single global pool architecture (`lib/global-pool.ts`, `app/api/global/*`)
 - **Contribution and payout backend** — Open Payments contribute/confirm/callback/status + recurring and payout cron flows (`app/api/payments/*`, `app/api/recurring/create/route.ts`, `app/api/cron/*`)
 - **Payment continuation + status APIs** — Callback continuation and authenticated payment status checks (`app/api/payments/callback/route.ts`, `app/api/payments/status/route.ts`)
