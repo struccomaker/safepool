@@ -320,7 +320,9 @@ export default function GlobeScene({
   const [godzillaPlacement, setGodzillaPlacement] = useState<GodzillaPlacement | null>(null)
   const [showFps, setShowFps] = useState(false)
   const [fps, setFps] = useState(0)
+  const [userArcs, setUserArcs] = useState<Array<{ id: number; startLat: number; startLng: number; endLat: number; endLng: number; color: [string, string] }>>([])
   const clickRingCounterRef = useRef(0)
+  const userArcCounterRef = useRef(0)
   const godzillaTemplateRef = useRef<Group | null>(null)
   const godzillaClipsRef = useRef<AnimationClip[]>([])
   const godzillaSpawnRafRef = useRef<number | null>(null)
@@ -490,6 +492,33 @@ export default function GlobeScene({
 
     window.addEventListener('keydown', handleToggleFps)
     return () => window.removeEventListener('keydown', handleToggleFps)
+  }, [])
+
+  useEffect(() => {
+    const handleSpawnArc = (event: KeyboardEvent) => {
+      if (event.key !== '1') return
+      event.preventDefault()
+      const randLat = () => Math.random() * 160 - 80
+      const randLng = () => Math.random() * 360 - 180
+      const arcId = ++userArcCounterRef.current
+      setUserArcs((prev) => [
+        ...prev,
+        {
+          id: arcId,
+          startLat: randLat(),
+          startLng: randLng(),
+          endLat: randLat(),
+          endLng: randLng(),
+          color: ['#4ade80', '#22c55e'],
+        },
+      ])
+      setTimeout(() => {
+        setUserArcs((prev) => prev.filter((a) => a.id !== arcId))
+      }, 4000)
+    }
+
+    window.addEventListener('keydown', handleSpawnArc)
+    return () => window.removeEventListener('keydown', handleSpawnArc)
   }, [])
 
   useEffect(() => {
@@ -670,7 +699,7 @@ export default function GlobeScene({
     }
   }, [hoveredCountryCode, selectedCountryCode, monochrome])
 
-  const arcsData = monochrome ? monoArcs : ARCS
+  const arcsData = [...(monochrome ? monoArcs : ARCS), ...userArcs]
   const baseRings = monochrome ? monoRings : RINGS
   const ringsData = [...baseRings, ...clickRings]
   const pointsData = [...(monochrome ? monoPoints : POINTS), ...PAYOUT_CYLINDERS]
