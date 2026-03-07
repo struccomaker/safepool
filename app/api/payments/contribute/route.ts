@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
 
     const { data: userRows, error: userRowError } = await admin
       .from('users')
-      .select('name')
+      .select('name,country')
       .eq('id', user.id)
       .limit(1)
 
@@ -126,6 +126,9 @@ export async function POST(req: NextRequest) {
     const dbProfileName = userRows.length > 0 && typeof userRows[0].name === 'string'
       ? normalizeDonorName(userRows[0].name)
       : ''
+    const donorCountry = userRows.length > 0 && typeof userRows[0].country === 'string' && userRows[0].country.trim().length === 2
+      ? userRows[0].country.trim().toUpperCase()
+      : 'SG'
 
     const donorName = body.donor_name
       || profileName
@@ -205,6 +208,7 @@ export async function POST(req: NextRequest) {
             quote_id: typeof maybeQuoteId === 'string' ? maybeQuoteId : '',
             is_anonymous: body.is_anonymous,
             donor_name: donorName,
+            donor_country: donorCountry,
           }),
           status: 'pending',
         })
@@ -225,6 +229,7 @@ export async function POST(req: NextRequest) {
         incoming_payment_id: payment.incomingPaymentId,
         is_anonymous: body.is_anonymous,
         donor_name: donorName,
+        donor_country: donorCountry,
       })
 
     if (pendingInsertError) {

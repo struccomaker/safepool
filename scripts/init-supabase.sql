@@ -4,6 +4,7 @@ create table if not exists public.users (
   id uuid primary key,
   email text not null default '',
   name text not null default '',
+  country text not null default 'SG',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -52,6 +53,7 @@ create table if not exists public.pending_contributions (
   member_id uuid not null references public.members(id) on delete cascade,
   donor_name text not null default 'SafePool Member',
   is_anonymous boolean not null default false,
+  donor_country text not null default 'SG',
   amount numeric(18, 6) not null,
   currency text not null,
   incoming_payment_id text not null,
@@ -65,6 +67,7 @@ create table if not exists public.contributions (
   member_id uuid not null references public.members(id) on delete cascade,
   donor_name text not null default 'SafePool Member',
   is_anonymous boolean not null default false,
+  donor_country text not null default 'SG',
   amount numeric(18, 6) not null,
   currency text not null,
   incoming_payment_id text not null,
@@ -112,6 +115,7 @@ create table if not exists public.recurring_contributions (
   member_wallet_address text not null,
   donor_name text not null default 'SafePool Member',
   is_anonymous boolean not null default false,
+  donor_country text not null default 'SG',
   amount numeric(18, 6) not null,
   currency text not null,
   interval text not null check (interval in ('P1D', 'P1W', 'P1M')),

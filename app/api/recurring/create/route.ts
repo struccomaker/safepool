@@ -100,7 +100,7 @@ export async function POST(req: Request) {
 
     const { data: userRows, error: userRowError } = await admin
       .from('users')
-      .select('name')
+      .select('name,country')
       .eq('id', user.id)
       .limit(1)
 
@@ -116,6 +116,9 @@ export async function POST(req: Request) {
       ? normalizeDonorName(body.donor_name)
       : ''
     const effectiveDonorName = donorName || profileName || dbProfileName || emailFallback || 'SafePool Member'
+    const effectiveDonorCountry = userRows.length > 0 && typeof userRows[0].country === 'string' && userRows[0].country.trim().length === 2
+      ? userRows[0].country.trim().toUpperCase()
+      : 'SG'
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'amount must be a positive number' }, { status: 400 })
@@ -176,6 +179,7 @@ export async function POST(req: Request) {
             interval,
             donor_name: effectiveDonorName,
             is_anonymous: isAnonymous,
+            donor_country: effectiveDonorCountry,
           }),
           status: 'pending',
         })
@@ -202,6 +206,7 @@ export async function POST(req: Request) {
         currency,
         donor_name: effectiveDonorName,
         is_anonymous: isAnonymous,
+        donor_country: effectiveDonorCountry,
         interval,
         next_payment_date: addIntervalDate(new Date(), interval).toISOString(),
         access_token: encryptSecret(grant.accessToken),

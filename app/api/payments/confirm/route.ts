@@ -108,7 +108,7 @@ export async function POST(req: Request) {
     // Look up the pending contribution
     const { data: rows, error: pendingError } = await admin
       .from('pending_contributions')
-      .select('id,pool_id,member_id,amount,currency,incoming_payment_id,donor_name,is_anonymous')
+      .select('id,pool_id,member_id,amount,currency,incoming_payment_id,donor_name,is_anonymous,donor_country')
       .eq('id', body.contribution_id)
       .in('member_id', memberIds)
       .limit(1)
@@ -129,6 +129,7 @@ export async function POST(req: Request) {
       incoming_payment_id: string
       donor_name: string | null
       is_anonymous: boolean | null
+      donor_country: string | null
     }
 
     let incomingPaymentId = contribution.incoming_payment_id
@@ -218,6 +219,9 @@ export async function POST(req: Request) {
           incoming_payment_id: incomingPaymentId,
           donor_name: contribution.donor_name ?? 'SafePool Member',
           is_anonymous: Boolean(contribution.is_anonymous),
+          donor_country: typeof contribution.donor_country === 'string' && contribution.donor_country.trim().length === 2
+            ? contribution.donor_country.trim().toUpperCase()
+            : 'SG',
           contributed_at: new Date().toISOString(),
           status: 'completed',
         }, { onConflict: 'id' })

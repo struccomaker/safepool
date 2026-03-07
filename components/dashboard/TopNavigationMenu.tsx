@@ -36,6 +36,10 @@ interface ProfileUser {
   }
 }
 
+interface ProfileSettingsResponse {
+  country: string
+}
+
 interface ContributionHistoryItem {
   id: string
   pool_id: string
@@ -61,6 +65,20 @@ interface PaymentPopupState {
 
 const itemClass =
   'inline-flex h-9 items-center justify-center rounded-md px-4 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white'
+
+const COUNTRY_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: 'SG', label: 'Singapore' },
+  { code: 'PH', label: 'Philippines' },
+  { code: 'MY', label: 'Malaysia' },
+  { code: 'ID', label: 'Indonesia' },
+  { code: 'TH', label: 'Thailand' },
+  { code: 'VN', label: 'Vietnam' },
+  { code: 'IN', label: 'India' },
+  { code: 'JP', label: 'Japan' },
+  { code: 'KR', label: 'South Korea' },
+  { code: 'US', label: 'United States' },
+  { code: 'GB', label: 'United Kingdom' },
+]
 
 const MINI_GODZILLA_ORIENTATIONS = {
   front: [0, 0, 0],
@@ -219,6 +237,8 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const [profileUser, setProfileUser] = useState<ProfileUser | null>(null)
   const [profileWallet, setProfileWallet] = useState<WalletInfo | null>(null)
   const [profileHistory, setProfileHistory] = useState<ContributionHistoryItem[]>([])
+  const [profileCountry, setProfileCountry] = useState('SG')
+  const [profileCountrySaving, setProfileCountrySaving] = useState(false)
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -411,9 +431,10 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       } = await supabase.auth.getUser()
       setProfileUser(user as ProfileUser | null)
 
-      const [walletRes, historyRes] = await Promise.all([
+      const [walletRes, historyRes, profileRes] = await Promise.all([
         fetch('/api/wallet/me', { cache: 'no-store' }),
         fetch('/api/global/payments/history', { cache: 'no-store' }),
+        fetch('/api/profile/me', { cache: 'no-store' }),
       ])
 
       if (!walletRes.ok) {
@@ -428,6 +449,15 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       } else {
         setProfileHistory([])
       }
+
+      if (profileRes.ok) {
+        const profileData = (await profileRes.json()) as ProfileSettingsResponse
+        setProfileCountry(typeof profileData.country === 'string' && profileData.country.trim().length === 2
+          ? profileData.country.trim().toUpperCase()
+          : 'SG')
+      } else {
+        setProfileCountry('SG')
+      }
     } catch (err: unknown) {
       setProfileError(err instanceof Error ? err.message : 'Unable to load profile data')
     } finally {
@@ -438,6 +468,28 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const openProfileModal = async () => {
     setShowProfileModal(true)
     await refreshProfileData()
+  }
+
+  const saveProfileCountry = async () => {
+    setProfileCountrySaving(true)
+    setProfileError('')
+
+    try {
+      const response = await fetch('/api/profile/me', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ country: profileCountry }),
+      })
+
+      if (!response.ok) {
+        const payload = await response.json()
+        throw new Error(payload.error ?? 'Failed to save profile country')
+      }
+    } catch (err: unknown) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to save profile country')
+    } finally {
+      setProfileCountrySaving(false)
+    }
   }
 
   const openDonationModal = async () => {
@@ -1064,6 +1116,31 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
                       <div className="flex justify-between">
                         <span className="text-white/40">Email</span>
                         <span>{profileUser?.email ?? '—'}</span>
+                      </div>
+                      <div className="space-y-2 pt-1">
+                        <label className="text-white/40" htmlFor="profile-country">
+                          Country
+                        </label>
+                        <div className="flex gap-2">
+                          <select
+                            className="w-full rounded-md border border-white/20 bg-black/40 px-3 py-2 text-sm text-white"
+                            id="profile-country"
+                            onChange={(event) => setProfileCountry(event.target.value)}
+                            value={profileCountry}
+                          >
+                            {COUNTRY_OPTIONS.map((option) => (
+                              <option key={option.code} value={option.code}>{option.label}</option>
+                            ))}
+                          </select>
+                          <Button
+                            disabled={profileCountrySaving}
+                            onClick={() => void saveProfileCountry()}
+                            type="button"
+                            variant="secondary"
+                          >
+                            {profileCountrySaving ? 'Saving...' : 'Save'}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </div>

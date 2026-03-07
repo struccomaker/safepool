@@ -13,6 +13,15 @@ interface SidebarDonationItem {
   contributed_at: string
 }
 
+function countryCodeToFlag(countryCode: string): string {
+  const code = countryCode.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) {
+    return ''
+  }
+  const points = [...code].map((char) => 127397 + char.charCodeAt(0))
+  return String.fromCodePoint(...points)
+}
+
 function toDisplayMember(memberId: string): string {
   if (memberId.length <= 12) {
     return `Member ${memberId}`
@@ -27,7 +36,7 @@ export async function GET() {
       getPoolWalletMetadata(),
       admin
         .from('contributions')
-        .select('id,member_id,donor_name,is_anonymous,amount,currency,contributed_at')
+        .select('id,member_id,donor_name,is_anonymous,donor_country,amount,currency,contributed_at')
         .eq('pool_id', GLOBAL_POOL_ID)
         .eq('status', 'completed')
         .order('contributed_at', { ascending: false })
@@ -52,7 +61,9 @@ export async function GET() {
 
     const donations: SidebarDonationItem[] = contributionsResult.data.map((row) => ({
       id: row.id,
-      member: row.is_anonymous ? 'anon' : (row.donor_name?.trim() || toDisplayMember(row.member_id)),
+      member: row.is_anonymous
+        ? 'anon'
+        : `${countryCodeToFlag(typeof row.donor_country === 'string' ? row.donor_country : 'SG')} ${(row.donor_name?.trim() || toDisplayMember(row.member_id))}`.trim(),
       amount: Number(row.amount),
       currency: row.currency,
       contributed_at: row.contributed_at,
