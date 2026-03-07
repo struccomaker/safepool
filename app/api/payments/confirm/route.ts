@@ -3,12 +3,17 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { insertRows, queryRows, toClickHouseDateTime } from '@/lib/clickhouse'
 import { sendContributionEmail } from '@/lib/email'
+import { pollIncomingPaymentCompletion } from '@/lib/open-payments'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
 interface ConfirmBody {
   contribution_id: string
   member_email?: string
+}
+
+interface GrantSessionPayload {
+  incomingPaymentId?: string
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -92,13 +97,58 @@ export async function POST(req: Request) {
     }
     const contribution = rows[0]
 
+    let incomingPaymentId = contribution.incoming_payment_id
+
+    if (!incomingPaymentId) {
+      const grantSessions = await queryRows<{
+        payload_json: string
+      }>(
+        `
+        SELECT payload_json
+        FROM payment_grant_sessions
+        WHERE flow = 'incoming'
+          AND reference_id = toUUID({reference_id:String})
+          AND status = 'completed'
+        ORDER BY updated_at DESC
+        LIMIT 1
+        `,
+        { reference_id: contribution.id }
+      )
+
+      if (grantSessions.length > 0) {
+        try {
+          const payload = JSON.parse(grantSessions[0].payload_json) as GrantSessionPayload
+          incomingPaymentId = payload.incomingPaymentId ?? ''
+        } catch {
+          incomingPaymentId = ''
+        }
+      }
+    }
+
+    if (!incomingPaymentId) {
+      return NextResponse.json({
+        error: 'Payment interaction is not completed yet. Finish wallet authorization first.',
+      }, { status: 409 })
+    }
+
+    const paymentStatus = await pollIncomingPaymentCompletion({
+      paymentId: incomingPaymentId,
+      expectedAmount: Number(contribution.amount),
+    })
+
+    if (paymentStatus.state !== 'completed' || paymentStatus.receivedAmount < Number(contribution.amount)) {
+      return NextResponse.json({
+        error: 'Incoming payment is still pending. Try confirming again in a moment.',
+      }, { status: 409 })
+    }
+
     await insertRows('contributions', [{
       id: contribution.id,
       pool_id: contribution.pool_id,
       member_id: contribution.member_id,
       amount: contribution.amount,
       currency: contribution.currency,
-      incoming_payment_id: contribution.incoming_payment_id,
+      incoming_payment_id: incomingPaymentId,
       contributed_at: toClickHouseDateTime(new Date()),
       status: 'completed',
     }])
