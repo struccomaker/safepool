@@ -1,5 +1,5 @@
 import { createClient } from '@clickhouse/client'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 const ch = createClient({
   url:      process.env.CLICKHOUSE_HOST!,
@@ -17,8 +17,11 @@ const NEW_PROPOSALS: Record<string, number> = {
 
 // app/api/governance/seed-round/route.ts — updated POST handler
 
-export async function POST() {
+export async function POST(req: NextRequest) {
   try {
+
+    const resetOnly = req.headers.get('x-phase') === 'reset-only'
+
     // Step 1 — Fetch ALL proposals regardless of current status
     const pResult = await ch.query({
       query: `SELECT proposal_id, parameter FROM safepool.proposals FINAL`,
@@ -55,6 +58,11 @@ export async function POST() {
       format: 'JSONEachRow',
       clickhouse_settings: { input_format_skip_unknown_fields: 1 },
     })
+
+    // Skip vote seeding if reset-only phase
+    if (resetOnly) {
+        return NextResponse.json({ reset: true, proposals: proposals.length })
+    }
 
     // Step 3 — Seed 150 fresh yes-majority votes per proposal
     const votes = []
