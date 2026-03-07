@@ -650,6 +650,18 @@ export default function GlobeScene({
   }, [monochrome])
 
   useEffect(() => {
+    const handleFocus = (e: Event) => {
+      const { lat, lng } = (e as CustomEvent<{ lat: number; lng: number }>).detail
+      if (!globeRef.current) return
+      const ctrl = globeRef.current.controls()
+      ctrl.autoRotate = false
+      globeRef.current.pointOfView({ lat, lng, altitude: 0.9 }, 1200)
+    }
+    window.addEventListener('safepool:focus-epicentre', handleFocus)
+    return () => window.removeEventListener('safepool:focus-epicentre', handleFocus)
+  }, [])
+
+  useEffect(() => {
     const handleSpawnArc = (event: KeyboardEvent) => {
       if (event.key !== '1') return
       event.preventDefault()

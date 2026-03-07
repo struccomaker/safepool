@@ -38,18 +38,18 @@ function AlertPhase() {
         @keyframes warning-flash {
           0%, 100% {
             background-color: rgba(0, 0, 0, 0.96);
-            border-color: rgba(74, 222, 128, 0.85);
-            box-shadow: 0 0 60px rgba(34,197,94,0.45), 0 0 120px rgba(34,197,94,0.12), inset 0 0 40px rgba(34,197,94,0.04);
+            border-color: rgba(239, 68, 68, 0.85);
+            box-shadow: 0 0 60px rgba(239,68,68,0.45), 0 0 120px rgba(239,68,68,0.12), inset 0 0 40px rgba(239,68,68,0.04);
           }
           50% {
-            background-color: rgba(20, 40, 20, 0.97);
-            border-color: rgba(134, 239, 172, 1);
-            box-shadow: 0 0 110px rgba(34,197,94,0.75), 0 0 200px rgba(34,197,94,0.2), inset 0 0 70px rgba(34,197,94,0.09);
+            background-color: rgba(40, 10, 10, 0.97);
+            border-color: rgba(248, 113, 113, 1);
+            box-shadow: 0 0 110px rgba(239,68,68,0.75), 0 0 200px rgba(239,68,68,0.2), inset 0 0 70px rgba(239,68,68,0.09);
           }
         }
         @keyframes warning-text-flash {
-          0%, 40%, 60%, 100% { color: #4ade80; text-shadow: 0 0 24px rgba(74,222,128,0.9); }
-          50%                 { color: #ffffff; text-shadow: 0 0 50px rgba(134,239,172,1);  }
+          0%, 40%, 60%, 100% { color: #ef4444; text-shadow: 0 0 24px rgba(239,68,68,0.9); }
+          50%                 { color: #ffffff; text-shadow: 0 0 50px rgba(248,113,113,1);  }
         }
         @keyframes scan-line {
           from { transform: translateX(-100%); }
@@ -66,32 +66,32 @@ function AlertPhase() {
           className="relative overflow-hidden rounded-xl border-2 backdrop-blur-md"
           style={{ animation: 'warning-flash 0.9s ease-in-out infinite' }}
         >
-          {/* Scanning green line top */}
+          {/* Scanning red line top */}
           <div className="pointer-events-none absolute inset-x-0 top-0 h-px overflow-hidden">
             <div
-              className="h-full w-1/4 bg-gradient-to-r from-transparent via-green-400 to-transparent"
+              className="h-full w-1/4 bg-gradient-to-r from-transparent via-red-400 to-transparent"
               style={{ animation: 'scan-line 1.4s linear infinite' }}
             />
           </div>
-          {/* Scanning green line bottom */}
+          {/* Scanning red line bottom */}
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px overflow-hidden">
             <div
-              className="h-full w-1/4 bg-gradient-to-r from-transparent via-green-400 to-transparent"
+              className="h-full w-1/4 bg-gradient-to-r from-transparent via-red-400 to-transparent"
               style={{ animation: 'scan-line 1.4s linear infinite reverse' }}
             />
           </div>
 
           {/* Corner accents */}
-          <div className="pointer-events-none absolute left-0 top-0 h-6 w-6 border-l-2 border-t-2 border-green-400" style={{ animation: 'corner-blink 0.9s ease-in-out infinite' }} />
-          <div className="pointer-events-none absolute right-0 top-0 h-6 w-6 border-r-2 border-t-2 border-green-400" style={{ animation: 'corner-blink 0.9s ease-in-out infinite 0.45s' }} />
-          <div className="pointer-events-none absolute bottom-0 left-0 h-6 w-6 border-b-2 border-l-2 border-green-400" style={{ animation: 'corner-blink 0.9s ease-in-out infinite 0.45s' }} />
-          <div className="pointer-events-none absolute bottom-0 right-0 h-6 w-6 border-b-2 border-r-2 border-green-400" style={{ animation: 'corner-blink 0.9s ease-in-out infinite' }} />
+          <div className="pointer-events-none absolute left-0 top-0 h-6 w-6 border-l-2 border-t-2 border-red-500" style={{ animation: 'corner-blink 0.9s ease-in-out infinite' }} />
+          <div className="pointer-events-none absolute right-0 top-0 h-6 w-6 border-r-2 border-t-2 border-red-500" style={{ animation: 'corner-blink 0.9s ease-in-out infinite 0.45s' }} />
+          <div className="pointer-events-none absolute bottom-0 left-0 h-6 w-6 border-b-2 border-l-2 border-red-500" style={{ animation: 'corner-blink 0.9s ease-in-out infinite 0.45s' }} />
+          <div className="pointer-events-none absolute bottom-0 right-0 h-6 w-6 border-b-2 border-r-2 border-red-500" style={{ animation: 'corner-blink 0.9s ease-in-out infinite' }} />
 
           {/* Main content — horizontal layout */}
           <div className="flex items-center gap-0">
 
             {/* Left: WARNING block */}
-            <div className="flex flex-col items-center justify-center border-r border-green-500/30 px-8 py-8 shrink-0">
+            <div className="flex flex-col items-center justify-center border-r border-red-500/30 px-8 py-8 shrink-0">
               <div
                 className="text-[11px] font-black tracking-[0.3em] uppercase"
                 style={{ animation: 'warning-text-flash 0.9s ease-in-out infinite', writingMode: 'horizontal-tb' }}
@@ -120,8 +120,8 @@ function AlertPhase() {
             </div>
 
             {/* Right divider: location */}
-            <div className="flex flex-col items-center justify-center border-l border-green-500/30 px-8 py-8 shrink-0 text-right">
-              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-green-400/60 mb-1">Epicentre</div>
+            <div className="flex flex-col items-center justify-center border-l border-red-500/30 px-8 py-8 shrink-0 text-right">
+              <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-red-400/60 mb-1">Epicentre</div>
               <div className="text-base font-bold text-white">{EQ_LOCATION}</div>
             </div>
 
@@ -130,7 +130,7 @@ function AlertPhase() {
           {/* Progress bar — full width, flush to bottom */}
           <div className="h-1 w-full overflow-hidden bg-white/10">
             <div
-              className="h-full bg-green-500 transition-all ease-linear"
+              className="h-full bg-red-500 transition-all ease-linear"
               style={{ width: `${barW}%`, transitionDuration: '3100ms' }}
             />
           </div>

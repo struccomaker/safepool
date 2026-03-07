@@ -6,7 +6,8 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { GlobeCountrySelection } from '@/components/GlobeScene'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { DISASTER_PINS } from '@/lib/disaster-pins'
+import { DISASTER_PINS, BRAZIL_EQ_PIN } from '@/lib/disaster-pins'
+import { getBrazilStatus, type BrazilStatus } from '@/lib/brazil-eq-state'
 
 // Re-shape shared pins into the format this component expects
 const GLOBAL_DISASTERS = DISASTER_PINS.map((p) => ({
@@ -17,6 +18,12 @@ const GLOBAL_DISASTERS = DISASTER_PINS.map((p) => ({
   dotColor: p.dotColor,
   rings:    p.rings2d,
 }))
+
+function brazilDotColor(status: BrazilStatus): string {
+  if (status === 'Payout Given') return '#f59e0b'
+  if (status === 'Monitoring')   return '#22c55e'
+  return BRAZIL_EQ_PIN.dotColor
+}
 
 // Initial zoom per clicked country — zooms in on the relevant disaster
 const COUNTRY_ZOOM: Record<string, number> = {
@@ -61,22 +68,43 @@ interface CountryDrilldownMapProps {
 }
 
 export default function CountryDrilldownMap({ country, onExit }: CountryDrilldownMapProps) {
-  const mapContainerRef = useRef<HTMLDivElement>(null)
-  const mapRef          = useRef<MapLibreMap | null>(null)
-  const pulseRafRef     = useRef<number | null>(null)
-  const [ready, setReady] = useState(false)
+  const mapContainerRef  = useRef<HTMLDivElement>(null)
+  const mapRef           = useRef<MapLibreMap | null>(null)
+  const pulseRafRef      = useRef<number | null>(null)
+  const brazilPulseRef   = useRef<number | null>(null)
+  const [ready, setReady]           = useState(false)
+  const [brazilStatus, setBrazilStatus] = useState<BrazilStatus>(getBrazilStatus)
+
+  // Keep module-level var in sync so late mounts read current status
+  useEffect(() => {
+    const onDemo     = () => setBrazilStatus('Triggered')
+    const onResolved = () => setBrazilStatus('Payout Given')
+    const onEnd      = () => setBrazilStatus('Monitoring')
+    window.addEventListener('safepool:earthquake-demo',     onDemo)
+    window.addEventListener('safepool:earthquake-resolved', onResolved)
+    window.addEventListener('safepool:earthquake-end',      onEnd)
+    return () => {
+      window.removeEventListener('safepool:earthquake-demo',     onDemo)
+      window.removeEventListener('safepool:earthquake-resolved', onResolved)
+      window.removeEventListener('safepool:earthquake-end',      onEnd)
+    }
+  }, [])
 
   const initialCenter = useMemo((): [number, number] => {
-    // Snap to the nearest disaster epicenter — handles cases where country.center
-    // is a geographic centroid rather than the actual epicenter (ISO-A2 vs A3 mismatch).
-    if (GLOBAL_DISASTERS.length === 0) return [country.center.lng, country.center.lat]
+    // Include Brazil pin if active so clicking near South America snaps to it
+    const currentBrazil = getBrazilStatus()
+    const all = currentBrazil
+      ? [...GLOBAL_DISASTERS, { ...BRAZIL_EQ_PIN, dotColor: brazilDotColor(currentBrazil), rings: BRAZIL_EQ_PIN.rings2d }]
+      : GLOBAL_DISASTERS
+
+    if (all.length === 0) return [country.center.lng, country.center.lat]
 
     const refLng = country.center.lng
     const refLat = country.center.lat
-    let nearest = GLOBAL_DISASTERS[0]
+    let nearest = all[0]
     let nearestDist = Infinity
 
-    for (const d of GLOBAL_DISASTERS) {
+    for (const d of all) {
       const dlat = d.coords[1] - refLat
       const dlng = d.coords[0] - refLng
       const dist = dlat * dlat + dlng * dlng
@@ -262,6 +290,78 @@ export default function CountryDrilldownMap({ country, onExit }: CountryDrilldow
     }
   }, [initialCenter, initialZoom, startPulse])
 
+  // Add / update / remove Brazil pin layers whenever status or map readiness changes
+  useEffect(() => {
+    if (!ready || !mapRef.current) return
+    const map = mapRef.current
+    const dotColor = brazilDotColor(brazilStatus)
+
+    if (brazilStatus === null) {
+      // Remove all Brazil layers if they exist
+      BRAZIL_EQ_PIN.rings2d.forEach((_, i) => {
+        if (map.getLayer(`ring-brazil-eq-${i}`))        map.removeLayer(`ring-brazil-eq-${i}`)
+        if (map.getLayer(`ring-stroke-brazil-eq-${i}`)) map.removeLayer(`ring-stroke-brazil-eq-${i}`)
+      })
+      if (map.getLayer('pulse-brazil-eq')) map.removeLayer('pulse-brazil-eq')
+      if (map.getLayer('dot-brazil-eq'))   map.removeLayer('dot-brazil-eq')
+      if (map.getSource('rings-brazil-eq')) map.removeSource('rings-brazil-eq')
+      if (map.getSource('epi-brazil-eq'))   map.removeSource('epi-brazil-eq')
+      return
+    }
+
+    if (!map.getSource('epi-brazil-eq')) {
+      // First time — add sources and layers
+      const ringsGeo = buildRings(BRAZIL_EQ_PIN.coords, BRAZIL_EQ_PIN.rings2d)
+      map.addSource('rings-brazil-eq', { type: 'geojson', data: ringsGeo })
+      BRAZIL_EQ_PIN.rings2d.forEach(([, fillColor, fillOpacity, strokeOpacity], i) => {
+        map.addLayer({ id: `ring-brazil-eq-${i}`, type: 'fill', source: 'rings-brazil-eq',
+          filter: ['==', ['get', 'ring'], i], paint: { 'fill-color': fillColor, 'fill-opacity': fillOpacity } })
+        map.addLayer({ id: `ring-stroke-brazil-eq-${i}`, type: 'line', source: 'rings-brazil-eq',
+          filter: ['==', ['get', 'ring'], i],
+          paint: { 'line-color': fillColor, 'line-opacity': strokeOpacity, 'line-width': 1, 'line-blur': 1.5 } })
+      })
+      map.addSource('epi-brazil-eq', { type: 'geojson', data: {
+        type: 'Feature', geometry: { type: 'Point', coordinates: BRAZIL_EQ_PIN.coords }, properties: {},
+      }})
+      map.addLayer({ id: 'pulse-brazil-eq', type: 'circle', source: 'epi-brazil-eq', paint: {
+        'circle-radius': 8, 'circle-color': 'rgba(0,0,0,0)', 'circle-opacity': 0,
+        'circle-stroke-width': 2.5, 'circle-stroke-color': dotColor, 'circle-stroke-opacity': 1,
+        'circle-pitch-alignment': 'map',
+      }})
+      map.addLayer({ id: 'dot-brazil-eq', type: 'circle', source: 'epi-brazil-eq', paint: {
+        'circle-radius': 5, 'circle-color': '#ffffff',
+        'circle-stroke-width': 2, 'circle-stroke-color': dotColor,
+        'circle-pitch-alignment': 'map',
+      }})
+    } else {
+      // Already added — just update the dot color
+      map.setPaintProperty('pulse-brazil-eq', 'circle-stroke-color', dotColor)
+      map.setPaintProperty('dot-brazil-eq',   'circle-stroke-color', dotColor)
+    }
+  }, [ready, brazilStatus])
+
+  // Separate pulse animation loop for the Brazil pin
+  useEffect(() => {
+    if (!ready || !mapRef.current || brazilStatus === null) return
+    const map = mapRef.current
+    const PERIOD = 1600
+    const t0 = performance.now()
+    let raf: number
+    const tick = (now: number) => {
+      const t       = ((now - t0) % PERIOD) / PERIOD
+      const radius  = 8 + t * 38
+      const opacity = Math.min(1, Math.max(0, 1 - t))
+      if (map.getLayer('pulse-brazil-eq')) {
+        map.setPaintProperty('pulse-brazil-eq', 'circle-radius',         radius)
+        map.setPaintProperty('pulse-brazil-eq', 'circle-stroke-opacity', opacity)
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    brazilPulseRef.current = raf
+    return () => { cancelAnimationFrame(raf); brazilPulseRef.current = null }
+  }, [ready, brazilStatus])
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       <div className="h-full w-full" ref={mapContainerRef} />
@@ -271,11 +371,27 @@ export default function CountryDrilldownMap({ country, onExit }: CountryDrilldow
         <div className="pointer-events-none mb-3 flex items-center gap-2">
           <Badge variant="outline" className="border-white/30 text-white/80">Live Events</Badge>
           <p className="text-xs uppercase tracking-[0.18em] text-white/50">
-            {ready ? `${GLOBAL_DISASTERS.length} active` : 'Loading…'}
+            {ready ? `${GLOBAL_DISASTERS.length + (brazilStatus !== null ? 1 : 0)} active` : 'Loading…'}
           </p>
         </div>
 
         <div className="space-y-2">
+          {brazilStatus !== null && (
+            <button
+              onClick={() => mapRef.current?.easeTo({ center: BRAZIL_EQ_PIN.coords, zoom: 10, duration: 900 })}
+              className="flex w-full items-start gap-2.5 rounded-lg bg-white/5 px-3 py-2 text-left transition-colors hover:bg-white/10"
+            >
+              <span
+                className="mt-1 h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: brazilDotColor(brazilStatus) }}
+              />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-white">{BRAZIL_EQ_PIN.label}</p>
+                <p className="truncate text-xs text-white/50">{BRAZIL_EQ_PIN.location}</p>
+              </div>
+            </button>
+          )}
+
           {GLOBAL_DISASTERS.map(d => (
             <button
               key={d.id}
