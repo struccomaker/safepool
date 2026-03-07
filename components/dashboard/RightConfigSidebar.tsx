@@ -30,6 +30,14 @@ interface SidebarResponse {
   }>
 }
 
+function formatElapsed(receivedAt: number): string {
+  const totalSeconds = Math.max(0, Math.floor((Date.now() - receivedAt) / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return `${hours}h ${minutes}m ${seconds}s ago`
+}
+
 export default function RightConfigSidebar() {
   const [tick, setTick] = useState(0)
   const [donations, setDonations] = useState<DonationItem[]>([])
@@ -131,7 +139,7 @@ export default function RightConfigSidebar() {
                   <span className="text-sm font-semibold text-green-300">{donation.amount.toFixed(2)} {donation.currency}</span>
                 </div>
                 <p className="mt-2 text-xs text-white/65">
-                  {index === 0 ? 'just now' : `${Math.max(1, Math.floor((Date.now() - donation.receivedAt) / 1000))}s ago`}
+                  {formatElapsed(donation.receivedAt)}
                 </p>
               </div>
             ))}

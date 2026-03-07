@@ -33,10 +33,10 @@ export async function GET() {
         .order('contributed_at', { ascending: false })
         .limit(6),
       admin
-        .from('payouts')
-        .select('amount,status')
+        .from('contributions')
+        .select('amount')
         .eq('pool_id', GLOBAL_POOL_ID)
-        .in('status', ['processing', 'completed']),
+        .eq('status', 'completed'),
     ])
 
     if (contributionsResult.error) {
@@ -44,12 +44,11 @@ export async function GET() {
     }
 
     if (payoutsResult.error) {
-      return NextResponse.json({ error: `Failed to load payout totals: ${payoutsResult.error.message}` }, { status: 500 })
+      return NextResponse.json({ error: `Failed to load contribution totals: ${payoutsResult.error.message}` }, { status: 500 })
     }
 
-    const totalIn = contributionsResult.data.reduce((sum, row) => sum + Number(row.amount), 0)
-    const totalOut = payoutsResult.data.reduce((sum, row) => sum + Number(row.amount), 0)
-    const currentPoolBalance = Math.max(0, totalIn - totalOut)
+    const totalIn = payoutsResult.data.reduce((sum, row) => sum + Number(row.amount), 0)
+    const currentPoolBalance = Math.max(0, totalIn)
 
     const donations: SidebarDonationItem[] = contributionsResult.data.map((row) => ({
       id: row.id,
@@ -69,7 +68,7 @@ export async function GET() {
       donations,
       totals: {
         total_in: totalIn,
-        total_out: totalOut,
+        total_out: 0,
       },
     })
   } catch (err: unknown) {
