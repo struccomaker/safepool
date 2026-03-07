@@ -58,6 +58,9 @@ export interface Contribution {
   id: string
   pool_id: string
   member_id: string
+  donor_name: string
+  is_anonymous: boolean
+  donor_country: string
   amount: number
   currency: string
   incoming_payment_id: string
@@ -120,6 +123,7 @@ export interface User {
   id: string
   email: string
   name: string
+  country: string
   created_at: string
 }
 
@@ -152,6 +156,9 @@ export interface RecurringContribution {
   member_id: string
   pool_id: string
   member_wallet_address: string
+  donor_name: string
+  is_anonymous: boolean
+  donor_country: string
   amount: number
   currency: string
   interval: string

@@ -1,194 +1,150 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
-const POOL_NAME = 'Metro Manila Emergency Pool'
 const MAX_DONATIONS = 6
-const MIN_DONATION_INTERVAL_MS = 5000
-const MAX_DONATION_INTERVAL_MS = 20000
-
-const FIRST_NAMES = ['Maria', 'Jose', 'Ana', 'Luis', 'Carmen', 'Miguel', 'Aisha', 'Ravi', 'Sofia', 'Daniel']
-const LAST_NAMES = ['Santos', 'Reyes', 'Dela Cruz', 'Garcia', 'Lopez', 'Khan', 'Patel', 'Fernandez', 'Tan', 'Mendoza']
 
 interface DonationItem {
   id: string
   member: string
+  country: string
+  isAnonymous: boolean
   amount: number
+  currency: string
   receivedAt: number
-  recurring: boolean
 }
 
-interface HistoryContributionItem {
-  id: string
-  amount: number
-  contributed_at: string
-}
-
-interface DonationCreatedEventDetail {
-  walletId: string
-  amount: number
-  recurring: boolean
-  anonymous: boolean
-}
-
-function buildDonation(sequence: number, id: string): DonationItem {
-  const firstName = FIRST_NAMES[sequence % FIRST_NAMES.length]
-  const lastName = LAST_NAMES[(sequence * 3) % LAST_NAMES.length]
-  const amount = (((sequence * 7) % 50) + 1) * 10
-
-  return {
-    id,
-    member: `${firstName} ${lastName.charAt(0)}.`,
-    amount,
-    receivedAt: Date.now(),
-    recurring: false,
+interface SidebarResponse {
+  wallet: {
+    address: string
+    assetCode: string
+    assetScale: number
   }
+  current_pool_balance: number
+  donations: Array<{
+    id: string
+    member: string
+    country: string
+    is_anonymous: boolean
+    amount: number
+    currency: string
+    contributed_at: string
+  }>
 }
 
-function getRandomIntervalMs() {
-  return Math.floor(Math.random() * (MAX_DONATION_INTERVAL_MS - MIN_DONATION_INTERVAL_MS + 1)) + MIN_DONATION_INTERVAL_MS
+function countryCodeToFlag(countryCode: string): string {
+  const code = countryCode.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) {
+    return '🌐'
+  }
+  const points = [...code].map((char) => 127397 + char.charCodeAt(0))
+  return String.fromCodePoint(...points)
+}
+
+function countryCodeToName(countryCode: string): string {
+  const code = countryCode.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) {
+    return 'Unknown country'
+  }
+
+  if (typeof Intl !== 'undefined' && typeof Intl.DisplayNames !== 'undefined') {
+    const displayNames = new Intl.DisplayNames(['en'], { type: 'region' })
+    return displayNames.of(code) ?? 'Unknown country'
+  }
+
+  const fallbackNames: Record<string, string> = {
+    SG: 'Singapore',
+    PH: 'Philippines',
+    MY: 'Malaysia',
+    ID: 'Indonesia',
+    TH: 'Thailand',
+    VN: 'Vietnam',
+    IN: 'India',
+    JP: 'Japan',
+    KR: 'South Korea',
+    US: 'United States',
+    GB: 'United Kingdom',
+  }
+  return fallbackNames[code] ?? 'Unknown country'
+}
+
+function stripLeadingCountryPrefix(member: string, countryCode: string): string {
+  const code = countryCode.trim().toUpperCase()
+  const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const prefixPattern = new RegExp(`^(?:[^\\p{L}\\p{N}]*\\s*)?${escaped}\\s+`, 'iu')
+  return member.replace(prefixPattern, '').trim() || member
+}
+
+function formatElapsed(receivedAt: number): string {
+  const totalSeconds = Math.max(0, Math.floor((Date.now() - receivedAt) / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  return `${hours}h ${minutes}m ${seconds}s ago`
 }
 
 export default function RightConfigSidebar() {
-  const sequenceRef = useRef(MAX_DONATIONS)
-  const nextIdRef = useRef(MAX_DONATIONS + 1)
-  const timeoutRef = useRef<number | null>(null)
-  const seenIdsRef = useRef(new Set<string>())
-  const [tick, setTick] = useState(MAX_DONATIONS)
-  const [donations, setDonations] = useState<DonationItem[]>(() => {
-    const seed = Array.from({ length: MAX_DONATIONS }, (_, index) => buildDonation(index + 1, String(index + 1))).reverse()
-    for (const donation of seed) {
-      seenIdsRef.current.add(donation.id)
-    }
-    return seed
-  })
-  const [poolBalance, setPoolBalance] = useState(() => donations.reduce((sum, donation) => sum + donation.amount, 0))
+  const [tick, setTick] = useState(0)
+  const [donations, setDonations] = useState<DonationItem[]>([])
+  const [poolBalance, setPoolBalance] = useState(0)
+  const [poolCurrency, setPoolCurrency] = useState('SGD')
+  const [walletAddress, setWalletAddress] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   useEffect(() => {
-    let cancelled = false
+    let mounted = true
+    let interval: ReturnType<typeof setInterval> | null = null
 
-    const queueNextDonation = () => {
-      const delay = getRandomIntervalMs()
-      timeoutRef.current = window.setTimeout(() => {
-        if (cancelled) return
-
-        sequenceRef.current += 1
-        const nextDonation = buildDonation(sequenceRef.current, String(nextIdRef.current))
-        nextIdRef.current += 1
-
-        seenIdsRef.current.add(nextDonation.id)
-
-        setTick(sequenceRef.current)
-        setDonations((currentDonations) => [nextDonation, ...currentDonations].slice(0, MAX_DONATIONS))
-        setPoolBalance((currentBalance) => currentBalance + nextDonation.amount)
-
-        queueNextDonation()
-      }, delay)
-    }
-
-    queueNextDonation()
-
-    return () => {
-      cancelled = true
-      if (timeoutRef.current) {
-        window.clearTimeout(timeoutRef.current)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-
-    const seedFromHistory = async () => {
+    const loadSidebar = async () => {
       try {
-        const res = await fetch('/api/global/payments/history', { cache: 'no-store' })
-        if (!res.ok) return
+        const res = await fetch('/api/global/donations/sidebar', { cache: 'no-store' })
+        if (!res.ok) {
+          const payload = await res.json()
+          throw new Error(payload.error ?? 'Failed to load donation sidebar')
+        }
 
-        const rows = (await res.json()) as HistoryContributionItem[]
-        if (cancelled || rows.length === 0) return
+        const payload = (await res.json()) as SidebarResponse
+        if (!mounted) {
+          return
+        }
 
-        const mapped: DonationItem[] = rows.map((row) => ({
+        const mapped: DonationItem[] = payload.donations.map((row) => ({
           id: row.id,
-          member: 'Wallet contribution',
+          member: row.member,
+          country: row.country,
+          isAnonymous: Boolean(row.is_anonymous),
           amount: Number(row.amount),
+          currency: row.currency,
           receivedAt: new Date(row.contributed_at).getTime(),
-          recurring: false,
         }))
 
-        setDonations((current) => {
-          const merged: DonationItem[] = []
-          const localSeen = new Set<string>()
-
-          for (const item of [...mapped, ...current]) {
-            if (localSeen.has(item.id)) continue
-            localSeen.add(item.id)
-            seenIdsRef.current.add(item.id)
-            merged.push(item)
-          }
-
-          return merged.slice(0, MAX_DONATIONS)
-        })
-
-        setPoolBalance((currentBalance) => {
-          const historyTotal = mapped.reduce((sum, item) => sum + item.amount, 0)
-          return Math.max(currentBalance, historyTotal)
-        })
+        setDonations(mapped.slice(0, MAX_DONATIONS))
+        setPoolBalance(Number(payload.current_pool_balance))
+        setPoolCurrency(payload.wallet.assetCode)
+        setWalletAddress(payload.wallet.address)
+        setTick((current) => current + 1)
+        setLoadError('')
       } catch (err) {
-        console.error('Failed to seed donation sidebar from backend history', err)
+        if (!mounted) {
+          return
+        }
+        const message = err instanceof Error ? err.message : 'Failed to load donation sidebar'
+        setLoadError(message)
       }
     }
 
-    void seedFromHistory()
+    void loadSidebar()
+    interval = setInterval(() => {
+      void loadSidebar()
+    }, 5000)
 
     return () => {
-      cancelled = true
-    }
-  }, [])
-
-  useEffect(() => {
-    const handleManualDonation = (event: Event) => {
-      const detail = (event as CustomEvent<DonationCreatedEventDetail>).detail
-      if (!detail) return
-
-      const amount = Number(detail.amount)
-      if (!Number.isFinite(amount) || amount <= 0) {
-        return
+      mounted = false
+      if (interval) {
+        clearInterval(interval)
       }
-
-      const trimmedWalletId = detail.walletId.trim()
-      if (!trimmedWalletId) {
-        return
-      }
-
-      const walletLabel =
-        trimmedWalletId.length > 14
-          ? `${trimmedWalletId.slice(0, 6)}...${trimmedWalletId.slice(-4)}`
-          : trimmedWalletId
-
-      const donation: DonationItem = {
-        id: `event-${nextIdRef.current}`,
-        member: detail.anonymous ? '' : `Wallet ${walletLabel}`,
-        amount,
-        receivedAt: Date.now(),
-        recurring: Boolean(detail.recurring),
-      }
-
-      nextIdRef.current += 1
-      if (seenIdsRef.current.has(donation.id)) {
-        return
-      }
-      seenIdsRef.current.add(donation.id)
-      setTick((current) => current + 1)
-      setDonations((currentDonations) => [donation, ...currentDonations].slice(0, MAX_DONATIONS))
-      setPoolBalance((currentBalance) => currentBalance + amount)
-    }
-
-    window.addEventListener('safepool:donation-created', handleManualDonation as EventListener)
-
-    return () => {
-      window.removeEventListener('safepool:donation-created', handleManualDonation as EventListener)
     }
   }, [])
 
@@ -205,15 +161,18 @@ export default function RightConfigSidebar() {
               Live
             </Badge>
           </CardTitle>
-          <CardDescription>Deterministic feed simulating real-time contributions into one active pool.</CardDescription>
+          <CardDescription>Live contributions and pool balance from SafePool backend data sources.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="rounded-md border border-white/10 bg-white/5 p-3">
             <p className="text-xs uppercase tracking-[0.15em] text-white/55">Current pool balance</p>
             <div className="mt-1 flex items-end justify-between">
-              <p className="text-lg font-semibold text-white">${poolBalance.toLocaleString()}</p>
+              <p className="text-lg font-semibold text-white">{poolBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })} {poolCurrency}</p>
             </div>
+            {walletAddress ? <p className="mt-2 truncate text-[11px] text-white/50">Wallet: {walletAddress}</p> : null}
           </div>
+
+          {loadError ? <p className="text-xs text-red-300">{loadError}</p> : null}
 
           <div className="max-h-[28rem] space-y-3 overflow-hidden">
             {donations.map((donation, index) => (
@@ -224,16 +183,30 @@ export default function RightConfigSidebar() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    {donation.member ? <p className="text-sm font-semibold text-white">{donation.member}</p> : null}
-                    {donation.recurring ? <p className="mt-1 text-[10px] uppercase tracking-wide text-cyan-300">Recurring</p> : null}
+                    {donation.member ? (
+                      <div className="flex items-center gap-2">
+                        {!donation.isAnonymous ? (
+                          <span
+                            className="group relative inline-flex items-center gap-1 rounded-md border border-cyan-400/50 bg-cyan-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-cyan-100"
+                            title={countryCodeToName(donation.country)}
+                          >
+                            <span>{donation.country}</span>
+                          </span>
+                        ) : null}
+                        <p className="text-sm font-semibold text-white">
+                          {donation.isAnonymous ? 'anon' : stripLeadingCountryPrefix(donation.member, donation.country)}
+                        </p>
+                      </div>
+                    ) : null}
                   </div>
-                  <span className="text-sm font-semibold text-green-300">${donation.amount.toFixed(2)}</span>
+                  <span className="text-sm font-semibold text-green-300">{donation.amount.toFixed(2)} {donation.currency}</span>
                 </div>
                 <p className="mt-2 text-xs text-white/65">
-                  {index === 0 ? 'just now' : `${Math.max(1, Math.floor((Date.now() - donation.receivedAt) / 1000))}s ago`}
+                  {formatElapsed(donation.receivedAt)}
                 </p>
               </div>
             ))}
+            {donations.length === 0 ? <p className="text-xs text-white/60">No confirmed contributions yet.</p> : null}
           </div>
         </CardContent>
       </Card>

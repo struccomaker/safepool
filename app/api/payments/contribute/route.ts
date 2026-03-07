@@ -13,6 +13,8 @@ import { encryptSecret } from '@/lib/secret-crypto'
 interface ContributeRequest {
   amount: number
   currency: string
+  is_anonymous?: boolean
+  donor_name?: string
 }
 
 function isContributeRequest(value: unknown): value is ContributeRequest {
@@ -20,12 +22,27 @@ function isContributeRequest(value: unknown): value is ContributeRequest {
     return false
   }
 
-  const candidate = value as { amount?: unknown; currency?: unknown }
+  const candidate = value as { amount?: unknown; currency?: unknown; is_anonymous?: unknown; donor_name?: unknown }
+  const isAnonymousValid = typeof candidate.is_anonymous === 'undefined' || typeof candidate.is_anonymous === 'boolean'
+  const donorNameValid = typeof candidate.donor_name === 'undefined' || typeof candidate.donor_name === 'string'
+
   return typeof candidate.amount === 'number'
     && Number.isFinite(candidate.amount)
     && typeof candidate.currency === 'string'
     && candidate.currency.trim().length > 0
     && candidate.currency.trim().length <= 12
+    && isAnonymousValid
+    && donorNameValid
+}
+
+function normalizeDonorName(raw: string): string {
+  const normalized = raw.trim().slice(0, 120)
+  if (!normalized) return ''
+  const lower = normalized.toLowerCase()
+  if (lower === 'safepool member' || lower === 'member' || lower === 'anonymous' || lower === 'anon') {
+    return ''
+  }
+  return normalized
 }
 
 interface CreateOneTimeAuthorizationWithQuote extends Record<string, unknown> {
@@ -82,7 +99,42 @@ export async function POST(req: NextRequest) {
     const body = {
       amount: rawBody.amount,
       currency: rawBody.currency.trim().toUpperCase(),
+      is_anonymous: Boolean(rawBody.is_anonymous),
+      donor_name: typeof rawBody.donor_name === 'string' ? normalizeDonorName(rawBody.donor_name) : '',
     }
+
+    const userMetadata = user.user_metadata as { full_name?: unknown; name?: unknown } | null
+    const profileName = typeof userMetadata?.full_name === 'string'
+      ? normalizeDonorName(userMetadata.full_name)
+      : typeof userMetadata?.name === 'string'
+        ? normalizeDonorName(userMetadata.name)
+        : ''
+    const emailFallback = typeof user.email === 'string' && user.email.includes('@')
+      ? normalizeDonorName(user.email.split('@')[0].trim())
+      : ''
+
+    const { data: userRows, error: userRowError } = await admin
+      .from('users')
+      .select('name,country')
+      .eq('id', user.id)
+      .limit(1)
+
+    if (userRowError) {
+      return NextResponse.json({ error: `Failed to load donor profile name: ${userRowError.message}` }, { status: 500 })
+    }
+
+    const dbProfileName = userRows.length > 0 && typeof userRows[0].name === 'string'
+      ? normalizeDonorName(userRows[0].name)
+      : ''
+    const donorCountry = userRows.length > 0 && typeof userRows[0].country === 'string' && userRows[0].country.trim().length === 2
+      ? userRows[0].country.trim().toUpperCase()
+      : 'SG'
+
+    const donorName = body.donor_name
+      || profileName
+      || dbProfileName
+      || emailFallback
+      || 'SafePool Member'
 
     if (body.amount <= 0) {
       return NextResponse.json({ error: 'currency and a positive amount are required' }, { status: 400 })
@@ -154,6 +206,9 @@ export async function POST(req: NextRequest) {
             member_wallet_address: memberWallet,
             incoming_payment_id: payment.incomingPaymentId,
             quote_id: typeof maybeQuoteId === 'string' ? maybeQuoteId : '',
+            is_anonymous: body.is_anonymous,
+            donor_name: donorName,
+            donor_country: donorCountry,
           }),
           status: 'pending',
         })
@@ -172,6 +227,9 @@ export async function POST(req: NextRequest) {
         amount: body.amount,
         currency: effectiveCurrency,
         incoming_payment_id: payment.incomingPaymentId,
+        is_anonymous: body.is_anonymous,
+        donor_name: donorName,
+        donor_country: donorCountry,
       })
 
     if (pendingInsertError) {

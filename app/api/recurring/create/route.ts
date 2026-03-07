@@ -13,6 +13,8 @@ interface CreateRecurringBody {
   amount?: number
   currency?: string
   interval?: 'P1D' | 'P1W' | 'P1M'
+  is_anonymous?: boolean
+  donor_name?: string
 }
 
 interface OpenPaymentsErrorLike {
@@ -56,6 +58,16 @@ function addIntervalDate(from: Date, interval: 'P1D' | 'P1W' | 'P1M'): Date {
   return next
 }
 
+function normalizeDonorName(raw: string): string {
+  const normalized = raw.trim().slice(0, 120)
+  if (!normalized) return ''
+  const lower = normalized.toLowerCase()
+  if (lower === 'safepool member' || lower === 'member' || lower === 'anonymous' || lower === 'anon') {
+    return ''
+  }
+  return normalized
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = await createSupabaseServerClient()
@@ -75,6 +87,38 @@ export async function POST(req: Request) {
     const amount = Number(body.amount)
     const currency = body.currency ?? 'USD'
     const interval = body.interval ?? 'P1M'
+    const isAnonymous = Boolean(body.is_anonymous)
+    const userMetadata = user.user_metadata as { full_name?: unknown; name?: unknown } | null
+    const profileName = typeof userMetadata?.full_name === 'string'
+      ? normalizeDonorName(userMetadata.full_name)
+      : typeof userMetadata?.name === 'string'
+        ? normalizeDonorName(userMetadata.name)
+        : ''
+    const emailFallback = typeof user.email === 'string' && user.email.includes('@')
+      ? normalizeDonorName(user.email.split('@')[0].trim())
+      : ''
+
+    const { data: userRows, error: userRowError } = await admin
+      .from('users')
+      .select('name,country')
+      .eq('id', user.id)
+      .limit(1)
+
+    if (userRowError) {
+      return NextResponse.json({ error: `Failed to load donor profile name: ${userRowError.message}` }, { status: 500 })
+    }
+
+    const dbProfileName = userRows.length > 0 && typeof userRows[0].name === 'string'
+      ? normalizeDonorName(userRows[0].name)
+      : ''
+
+    const donorName = typeof body.donor_name === 'string' && body.donor_name.trim().length > 0
+      ? normalizeDonorName(body.donor_name)
+      : ''
+    const effectiveDonorName = donorName || profileName || dbProfileName || emailFallback || 'SafePool Member'
+    const effectiveDonorCountry = userRows.length > 0 && typeof userRows[0].country === 'string' && userRows[0].country.trim().length === 2
+      ? userRows[0].country.trim().toUpperCase()
+      : 'SG'
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'amount must be a positive number' }, { status: 400 })
@@ -133,6 +177,9 @@ export async function POST(req: Request) {
             amount,
             currency,
             interval,
+            donor_name: effectiveDonorName,
+            is_anonymous: isAnonymous,
+            donor_country: effectiveDonorCountry,
           }),
           status: 'pending',
         })
@@ -157,6 +204,9 @@ export async function POST(req: Request) {
         member_wallet_address: memberWalletAddress,
         amount,
         currency,
+        donor_name: effectiveDonorName,
+        is_anonymous: isAnonymous,
+        donor_country: effectiveDonorCountry,
         interval,
         next_payment_date: addIntervalDate(new Date(), interval).toISOString(),
         access_token: encryptSecret(grant.accessToken),

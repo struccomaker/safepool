@@ -36,6 +36,10 @@ interface ProfileUser {
   }
 }
 
+interface ProfileSettingsResponse {
+  country: string
+}
+
 interface ContributionHistoryItem {
   id: string
   pool_id: string
@@ -61,6 +65,29 @@ interface PaymentPopupState {
 
 const itemClass =
   'inline-flex h-9 items-center justify-center rounded-md px-4 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white'
+
+const COUNTRY_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: 'SG', label: 'Singapore' },
+  { code: 'PH', label: 'Philippines' },
+  { code: 'MY', label: 'Malaysia' },
+  { code: 'ID', label: 'Indonesia' },
+  { code: 'TH', label: 'Thailand' },
+  { code: 'VN', label: 'Vietnam' },
+  { code: 'IN', label: 'India' },
+  { code: 'JP', label: 'Japan' },
+  { code: 'KR', label: 'South Korea' },
+  { code: 'US', label: 'United States' },
+  { code: 'GB', label: 'United Kingdom' },
+]
+
+function countryCodeToFlag(countryCode: string): string {
+  const code = countryCode.trim().toUpperCase()
+  if (!/^[A-Z]{2}$/.test(code)) {
+    return '🌐'
+  }
+  const points = [...code].map((char) => 127397 + char.charCodeAt(0))
+  return String.fromCodePoint(...points)
+}
 
 const MINI_GODZILLA_ORIENTATIONS = {
   front: [0, 0, 0],
@@ -219,6 +246,8 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const [profileUser, setProfileUser] = useState<ProfileUser | null>(null)
   const [profileWallet, setProfileWallet] = useState<WalletInfo | null>(null)
   const [profileHistory, setProfileHistory] = useState<ContributionHistoryItem[]>([])
+  const [profileCountry, setProfileCountry] = useState('SG')
+  const [profileCountrySaving, setProfileCountrySaving] = useState(false)
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -411,9 +440,10 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       } = await supabase.auth.getUser()
       setProfileUser(user as ProfileUser | null)
 
-      const [walletRes, historyRes] = await Promise.all([
+      const [walletRes, historyRes, profileRes] = await Promise.all([
         fetch('/api/wallet/me', { cache: 'no-store' }),
         fetch('/api/global/payments/history', { cache: 'no-store' }),
+        fetch('/api/profile/me', { cache: 'no-store' }),
       ])
 
       if (!walletRes.ok) {
@@ -428,6 +458,15 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       } else {
         setProfileHistory([])
       }
+
+      if (profileRes.ok) {
+        const profileData = (await profileRes.json()) as ProfileSettingsResponse
+        setProfileCountry(typeof profileData.country === 'string' && profileData.country.trim().length === 2
+          ? profileData.country.trim().toUpperCase()
+          : 'SG')
+      } else {
+        setProfileCountry('SG')
+      }
     } catch (err: unknown) {
       setProfileError(err instanceof Error ? err.message : 'Unable to load profile data')
     } finally {
@@ -438,6 +477,28 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const openProfileModal = async () => {
     setShowProfileModal(true)
     await refreshProfileData()
+  }
+
+  const saveProfileCountry = async () => {
+    setProfileCountrySaving(true)
+    setProfileError('')
+
+    try {
+      const response = await fetch('/api/profile/me', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ country: profileCountry }),
+      })
+
+      if (!response.ok) {
+        const payload = await response.json()
+        throw new Error(payload.error ?? 'Failed to save profile country')
+      }
+    } catch (err: unknown) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to save profile country')
+    } finally {
+      setProfileCountrySaving(false)
+    }
   }
 
   const openDonationModal = async () => {
@@ -623,12 +684,17 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     setSuccessMessage('')
 
     const parsedAmount = Number(donationAmount)
-    if (!Number.isFinite(parsedAmount) || parsedAmount < 10 || parsedAmount > 500 || parsedAmount % 10 !== 0) {
-      setDonationError('Donation amount must be between $10 and $500 in increments of $10.')
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 10 || parsedAmount > 500 || parsedAmount % 1 !== 0) {
+      setDonationError('Donation amount must be between $10 and $500 in increments of $1.')
       return
     }
 
     setDonationStep('submitting')
+
+    const donorNameCandidate = profileUser?.user_metadata?.full_name
+      ?? profileUser?.email?.split('@')[0]
+      ?? 'SafePool Member'
+    const donorName = String(donorNameCandidate).trim().slice(0, 120)
 
     try {
       const ensureMemberJoin = async () => {
@@ -656,6 +722,8 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
             amount: parsedAmount,
             currency: 'SGD',
             interval: recurringInterval,
+            is_anonymous: isAnonymous,
+            donor_name: donorName,
           }),
         })
 
@@ -685,6 +753,8 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         body: JSON.stringify({
           amount: parsedAmount,
           currency: 'SGD',
+          is_anonymous: isAnonymous,
+          donor_name: donorName,
         }),
       })
 
@@ -946,7 +1016,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
                       min={10}
                       onChange={(event) => setDonationAmount(event.target.value)}
                       required
-                      step={10}
+                      step={1}
                       type="number"
                       value={donationAmount}
                     />
@@ -1055,6 +1125,41 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
                       <div className="flex justify-between">
                         <span className="text-white/40">Email</span>
                         <span>{profileUser?.email ?? '—'}</span>
+                      </div>
+                      <div className="space-y-2 pt-1">
+                        <label className="text-white/40">
+                          Country
+                        </label>
+                        <div className="rounded-lg border border-white/10 bg-black/35 p-2">
+                          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                            {COUNTRY_OPTIONS.map((option) => {
+                              const selected = profileCountry === option.code
+                              return (
+                                <button
+                                  className={`rounded-md border px-2 py-2 text-left text-xs transition-colors ${selected
+                                    ? 'border-cyan-400/60 bg-cyan-500/20 text-white'
+                                    : 'border-white/10 bg-white/5 text-white/80 hover:border-white/25 hover:bg-white/10'}`}
+                                  key={option.code}
+                                  onClick={() => setProfileCountry(option.code)}
+                                  type="button"
+                                >
+                                  <span className="mr-1.5">{countryCodeToFlag(option.code)}</span>
+                                  {option.label}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            disabled={profileCountrySaving}
+                            onClick={() => void saveProfileCountry()}
+                            type="button"
+                            variant="secondary"
+                          >
+                            {profileCountrySaving ? 'Saving...' : 'Save Country'}
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   </div>

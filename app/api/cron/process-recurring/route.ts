@@ -14,6 +14,9 @@ interface RecurringRow {
   member_wallet_address: string
   amount: number
   currency: string
+  donor_name: string | null
+  is_anonymous: boolean | null
+  donor_country: string | null
   interval: 'P1D' | 'P1W' | 'P1M'
   access_token: string
 }
@@ -42,7 +45,7 @@ export async function GET(req: Request) {
     const admin = createSupabaseAdminClient()
     const { data: recurringRowsData, error: recurringRowsError } = await admin
       .from('recurring_contributions')
-      .select('id,member_id,pool_id,member_wallet_address,amount,currency,interval,access_token')
+      .select('id,member_id,pool_id,member_wallet_address,amount,currency,donor_name,is_anonymous,donor_country,interval,access_token')
       .eq('status', 'active')
       .lte('next_payment_date', new Date().toISOString())
       .order('next_payment_date', { ascending: true })
@@ -110,6 +113,11 @@ export async function GET(req: Request) {
             amount: Number(recurring.amount),
             currency: recurring.currency,
             incoming_payment_id: payout.outgoingPaymentId,
+            donor_name: recurring.donor_name ?? 'SafePool Member',
+            is_anonymous: Boolean(recurring.is_anonymous),
+            donor_country: typeof recurring.donor_country === 'string' && recurring.donor_country.trim().length === 2
+              ? recurring.donor_country.trim().toUpperCase()
+              : 'SG',
             contributed_at: new Date().toISOString(),
             status: 'completed',
           })
