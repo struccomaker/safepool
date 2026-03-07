@@ -37,12 +37,24 @@ const RINGS = DISASTER_PINS.map((p) => ({
   color: () => p.dotColor,
 }))
 
+
 const POINTS = DISASTER_PINS.map((p) => ({
-  lat: p.coords[1],
-  lng: p.coords[0],
-  size: p.pointSize,
-  color: p.dotColor,
-  label: `${p.label} · ${p.location}`,
+  lat:      p.coords[1],
+  lng:      p.coords[0],
+  altitude: 0.012,
+  size:     p.pointSize,
+  color:    p.dotColor,
+  label:    `${p.label} · ${p.location}`,
+}))
+
+// Payout cylinders — tall green pillars, height scales with payoutAmount
+const PAYOUT_CYLINDERS = DISASTER_PINS.map((p) => ({
+  lat:      p.coords[1],
+  lng:      p.coords[0],
+  altitude: 0.03 + (p.payoutAmount / 50000) * 0.04,
+  size:     0.35,
+  color:    '#22c55e',
+  label:    `${p.label} · $${(p.payoutAmount / 1000).toFixed(1)}k payout`,
 }))
 
 type LngLat = [number, number]
@@ -288,6 +300,8 @@ interface GodzillaPlacement {
   object: Group
 }
 
+
+
 export default function GlobeScene({
   monochrome = false,
   className = '',
@@ -407,6 +421,7 @@ export default function GlobeScene({
       cancelled = true
     }
   }, [])
+
 
   useEffect(() => {
     let cancelled = false
@@ -658,7 +673,7 @@ export default function GlobeScene({
   const arcsData = monochrome ? monoArcs : ARCS
   const baseRings = monochrome ? monoRings : RINGS
   const ringsData = [...baseRings, ...clickRings]
-  const pointsData = monochrome ? monoPoints : POINTS
+  const pointsData = [...(monochrome ? monoPoints : POINTS), ...PAYOUT_CYLINDERS]
 
   const pointerEventsFilter = (object: object, data?: object) => {
     if (!isCountryFeature(data) || !globeRef.current) {
@@ -904,7 +919,7 @@ export default function GlobeScene({
         ringRepeatPeriod="repeatPeriod"
         pointsData={pointsData}
         pointColor="color"
-        pointAltitude={0.012}
+        pointAltitude="altitude"
         pointRadius="size"
         pointResolution={8}
         pointLabel="label"

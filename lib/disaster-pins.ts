@@ -37,6 +37,8 @@ export interface DisasterPin {
   source: string
   /** Current alert status shown in sidebar */
   status: 'Triggered' | 'Monitoring' | 'Resolved'
+  /** Mock payout amount (USD) disbursed from the pool for this disaster */
+  payoutAmount: number
 }
 
 export const DISASTER_PINS: DisasterPin[] = [
@@ -59,6 +61,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     severity: 'M6.5',
     source: 'USGS',
     status: 'Triggered',
+    payoutAmount: 45200,
   },
   {
     id: 'jakarta-flood',
@@ -79,6 +82,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     severity: 'Severe',
     source: 'GDACS',
     status: 'Monitoring',
+    payoutAmount: 28750,
   },
   {
     id: 'kathmandu-eq',
@@ -99,6 +103,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     severity: 'M5.8',
     source: 'USGS',
     status: 'Monitoring',
+    payoutAmount: 18400,
   },
   {
     id: 'bangkok-flood',
@@ -119,6 +124,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     severity: 'Warning',
     source: 'GDACS',
     status: 'Monitoring',
+    payoutAmount: 11600,
   },
 ]
 
