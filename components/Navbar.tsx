@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-const NAV_LINKS = [
+const APP_LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/pool', label: 'Pool' },
   { href: '/disasters', label: 'Disasters' },
@@ -11,8 +11,18 @@ const NAV_LINKS = [
   { href: '/profile', label: 'Profile' },
 ]
 
+const HOME_LINKS = [
+  { href: '/#home', label: 'Home' },
+  { href: '/#stats', label: 'Stats' },
+  { href: '/#how-it-works', label: 'How it works' },
+  { href: '/#highlights', label: 'Highlights' },
+  { href: '/#cta', label: 'Start' },
+]
+
 export default function Navbar() {
   const pathname = usePathname()
+  const isHome = pathname === '/'
+  const links = isHome ? HOME_LINKS : APP_LINKS
 
   return (
     <nav className="sticky top-0 z-50 border-b border-white/8 bg-[var(--background)]/90 backdrop-blur-md">
@@ -23,14 +33,14 @@ export default function Navbar() {
         </Link>
 
         <div className="hidden md:flex items-center gap-1">
-          {NAV_LINKS.map((link) => (
+          {links.map((link) => (
             <Link
               key={link.href}
               href={link.href}
               className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                pathname.startsWith(link.href)
-                  ? 'text-white bg-white/10'
-                  : 'text-white/50 hover:text-white hover:bg-white/5'
+                !isHome && pathname.startsWith(link.href)
+                  ? 'bg-white/10 text-white'
+                  : 'text-white/50 hover:bg-white/5 hover:text-white'
               }`}
             >
               {link.label}
@@ -39,10 +49,10 @@ export default function Navbar() {
         </div>
 
         <Link
-          href="/contribute"
+          href={isHome ? '/dashboard' : '/pools/create'}
           className="px-4 py-1.5 bg-green-500 hover:bg-green-400 text-black text-sm font-semibold rounded-lg transition-colors"
         >
-          Contribute
+          {isHome ? 'Open App' : '+ Pool'}
         </Link>
       </div>
     </nav>
