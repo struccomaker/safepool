@@ -16,7 +16,7 @@ export default function DashboardPage() {
 
       <div className="pointer-events-none absolute inset-0 z-40 hidden lg:block">
         <div className="pointer-events-auto absolute right-4 top-4">
-          <TopNavigationMenu isAuthenticated={false} />
+          <TopNavigationMenu />
         </div>
       </div>
 

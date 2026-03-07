@@ -3,6 +3,7 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import Providers from '@/components/Providers'
+import LedTicker from '@/components/LedTicker'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -16,6 +17,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className={`${inter.className} bg-[#050508] text-white min-h-screen`}>
         <Providers>
+          {/* <LedTicker /> */}
           <main>{children}</main>
         </Providers>
       </body>

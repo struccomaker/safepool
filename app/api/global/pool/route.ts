@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import client from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 
-// Returns the single global pool
 export async function GET() {
   try {
     const result = await client.query({
@@ -17,8 +16,11 @@ export async function GET() {
       query_params: { id: GLOBAL_POOL_ID },
       format: 'JSONEachRow',
     })
-    const data = await result.json()
-    return NextResponse.json(data)
+    const rows = (await result.json()) as unknown[]
+    if (rows.length === 0) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    return NextResponse.json(rows[0])
   } catch (err: unknown) {
     console.error(err)
     return NextResponse.json({ error: 'Failed to fetch pool' }, { status: 500 })
