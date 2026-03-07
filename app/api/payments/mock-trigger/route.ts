@@ -343,9 +343,8 @@ export async function POST() {
       return createBootstrapApproval(admin, user.id, donorWalletAddress, poolWallet.assetCode)
     }
 
-    // Keep individual mock payments small relative to the grant limit
-    // so many payments fit within one approval cycle
-    const amount = randomAmount(Math.max(100, Math.floor(bootstrapAmount / 10)))
+    // Random mock donation amount: $5 - $100 SGD
+    const amount = Math.floor(Math.random() * 96) + 5
     const donorName = pickRandom(MOCK_NAMES)
     const donorCountry = pickRandom(MOCK_COUNTRIES)
 

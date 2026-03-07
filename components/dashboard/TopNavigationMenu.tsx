@@ -158,7 +158,7 @@ function MiniGodzillaBadge() {
         scene.add(nextModel)
       },
       undefined,
-      () => {}
+      () => { }
     )
 
     const animate = () => {
@@ -249,6 +249,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const [profileCountry, setProfileCountry] = useState('SG')
   const [profileCountrySaving, setProfileCountrySaving] = useState(false)
   const [mockDonationRunning, setMockDonationRunning] = useState(false)
+  const mockDonationLock = useRef(false)
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -503,10 +504,12 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   }
 
   const triggerMockDonation = async () => {
-    if (mockDonationRunning) {
+    // Use ref for instant synchronous guard against rapid key presses
+    // (React state updates are async and can't prevent race conditions)
+    if (mockDonationLock.current) {
       return
     }
-
+    mockDonationLock.current = true
     setMockDonationRunning(true)
     try {
       const response = await fetch('/api/payments/mock-trigger', {
@@ -551,6 +554,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       })
     } finally {
       setMockDonationRunning(false)
+      mockDonationLock.current = false
     }
   }
 
@@ -918,9 +922,8 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     <>
       {showWelcomeOverlay && (
         <div
-          className={`fixed inset-0 z-[70] flex cursor-pointer items-center justify-center bg-zinc-900/62 backdrop-blur-sm transition-opacity duration-700 ${
-            welcomeOverlayFading ? 'opacity-0' : 'opacity-100'
-          }`}
+          className={`fixed inset-0 z-[70] flex cursor-pointer items-center justify-center bg-zinc-900/62 backdrop-blur-sm transition-opacity duration-700 ${welcomeOverlayFading ? 'opacity-0' : 'opacity-100'
+            }`}
           onClick={dismissWelcomeOverlay}
         >
           <p className="px-8 text-center text-4xl font-black uppercase tracking-[0.14em] text-white drop-shadow-[0_8px_28px_rgba(0,0,0,0.6)]">
