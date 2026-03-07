@@ -33,8 +33,9 @@ async function getPool(id: string): Promise<Pool | null> {
   }
 }
 
-export default async function PoolDetailPage({ params }: { params: { id: string } }) {
-  const pool = await getPool(params.id)
+export default async function PoolDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const pool = await getPool(id)
   if (!pool) notFound()
 
   const rules = JSON.parse(pool.trigger_rules) as { disasterTypes: string[]; radius_km: number; minMagnitude: number }

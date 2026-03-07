@@ -11,8 +11,9 @@ async function getMembers(poolId: string): Promise<Member[]> {
   }
 }
 
-export default async function MembersPage({ params }: { params: { id: string } }) {
-  const members = await getMembers(params.id)
+export default async function MembersPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
+  const members = await getMembers(id)
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-12">
