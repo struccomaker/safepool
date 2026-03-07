@@ -77,9 +77,9 @@ export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMap
     const PERIOD = 1600
     const t0 = performance.now()
     function tick(now: number) {
-      const t       = ((now - t0) % PERIOD) / PERIOD
+      const t       = Math.min(((now - t0) % PERIOD) / PERIOD, 1)
       const radius  = 8 + t * 38
-      const opacity = 1 - t
+      const opacity = Math.max(0, 1 - t)
       if (map.getLayer('epicentre-pulse')) {
         map.setPaintProperty('epicentre-pulse', 'circle-radius',         radius)
         map.setPaintProperty('epicentre-pulse', 'circle-stroke-opacity', opacity)
