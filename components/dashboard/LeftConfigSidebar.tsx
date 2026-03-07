@@ -1,7 +1,6 @@
 'use client'
 
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
 const disasterFeed = [
@@ -60,9 +59,6 @@ export default function LeftConfigSidebar() {
               </div>
             </div>
           ))}
-          <Button className="w-full" variant="secondary">
-            Open Disaster Console
-          </Button>
         </CardContent>
       </Card>
     </aside>
