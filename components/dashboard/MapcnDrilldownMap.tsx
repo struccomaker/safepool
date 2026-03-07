@@ -125,10 +125,21 @@ export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMap
 
       mapRef.current = map
       map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+
+      const enforceCompactAttribution = () => {
+        const attributionElement = map.getContainer().querySelector('.maplibregl-ctrl-attrib')
+        if (!attributionElement) return
+
+        attributionElement.classList.add('maplibregl-compact')
+        attributionElement.classList.remove('maplibregl-compact-show')
+      }
+
+      window.setTimeout(enforceCompactAttribution, 0)
 
       map.on('load', () => {
         if (cancelled) return
+
+        enforceCompactAttribution()
 
         // Plot every disaster: rings + pulse dot
         GLOBAL_DISASTERS.forEach(disaster => {
