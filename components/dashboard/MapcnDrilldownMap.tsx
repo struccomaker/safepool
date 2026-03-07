@@ -106,13 +106,27 @@ export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMap
         pitch:      0,
         bearing:    0,
         dragRotate: false,
+        attributionControl: false,
       })
 
       mapRef.current = map
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+
+      map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
+
+      const enforceCompactAttribution = () => {
+        const attributionElement = map.getContainer().querySelector('.maplibregl-ctrl-attrib')
+        if (!attributionElement) return
+
+        attributionElement.classList.add('maplibregl-compact')
+        attributionElement.classList.remove('maplibregl-compact-show')
+      }
+
+      window.setTimeout(enforceCompactAttribution, 0)
 
       map.on('load', () => {
         if (cancelled) return
+
+        enforceCompactAttribution()
 
         // Damage rings (outer → inner)
         map.addSource('damage-rings', { type: 'geojson', data: damageRingsData })
@@ -181,7 +195,7 @@ export default function MapcnDrilldownMap({ country, onExit }: MapcnDrilldownMap
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-      <div className="h-full w-full" ref={mapContainerRef} />
+      <div className="drilldown-map h-full w-full" ref={mapContainerRef} />
 
       <div className="pointer-events-none absolute left-4 top-4 z-20 max-w-[300px] rounded-xl border border-white/20 bg-black/75 p-4 backdrop-blur">
         <div className="mb-3 flex items-center gap-2">

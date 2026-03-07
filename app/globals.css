@@ -66,3 +66,23 @@ body {
   font-family: 'VT323', monospace;
   letter-spacing: 0.08em;
 }
+
+/* Drilldown map attribution: compact, bottom-right, low-visual-noise */
+.drilldown-map .maplibregl-ctrl-bottom-right .maplibregl-ctrl-attrib {
+  margin: 8px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.drilldown-map .maplibregl-ctrl-attrib a,
+.drilldown-map .maplibregl-ctrl-attrib a:visited {
+  color: rgba(255, 255, 255, 0.86);
+}
+
+.drilldown-map .maplibregl-ctrl-attrib-button {
+  background-color: transparent;
+  opacity: 0.85;
+}
