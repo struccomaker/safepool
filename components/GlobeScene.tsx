@@ -5,7 +5,7 @@ import type { GlobeMethods } from 'react-globe.gl'
 import { AnimationAction, AnimationClip, AnimationMixer, Box3, Group, Vector3 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
-import { DISASTER_PINS } from '@/lib/disaster-pins'
+import { DISASTER_PINS, getDisastersByCountry } from '@/lib/disaster-pins'
 
 const Globe = dynamic(() => import('react-globe.gl'), {
   ssr: false,
@@ -231,6 +231,29 @@ function isFrontHemisphere(country: { lat: number; lng: number }, pov: { lat: nu
     + Math.cos(countryLat) * Math.cos(povLat) * Math.cos(countryLng - povLng)
 
   return dot > 0
+}
+
+/**
+ * Calculate great-circle distance between two points on Earth using Haversine formula.
+ * Returns distance in kilometers.
+ */
+function getDistanceBetweenCoords(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+): number {
+  const R = 6371 // Earth's radius in kilometers
+  const dLat = toRadians(lat2 - lat1)
+  const dLng = toRadians(lng2 - lng1)
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+    Math.sin(dLng / 2) * Math.sin(dLng / 2)
+
+  const c = 2 * Math.asin(Math.sqrt(a))
+  return R * c
 }
 
 interface GlobeMaterial {
@@ -648,7 +671,6 @@ export default function GlobeScene({
 
   const handlePolygonClick = (polygon: object) => {
     const feature = polygon as CountryFeature
-    const center = getFeatureCenter(feature)
     const code = getCountryCode(feature)
     const name = getCountryName(feature)
 
@@ -657,7 +679,48 @@ export default function GlobeScene({
     if (globeRef.current) {
       const controls = globeRef.current.controls()
       controls.autoRotate = false
-      globeRef.current.pointOfView({ lat: center.lat, lng: center.lng, altitude: 0.78 }, 900)
+
+      // Try to find the nearest disaster epicenter for this country
+      const disastersByCountry = getDisastersByCountry()
+      const disastersInCountry = disastersByCountry.get(code)
+
+      let targetLat = getFeatureCenter(feature).lat
+      let targetLng = getFeatureCenter(feature).lng
+
+      if (disastersInCountry && disastersInCountry.length > 0) {
+        // Get current POV to calculate distance from viewer
+        const currentPov = globeRef.current.pointOfView()
+
+        // Find the closest disaster epicenter
+        let closestDisaster = disastersInCountry[0]
+        let closestDistance = getDistanceBetweenCoords(
+          currentPov.lat,
+          currentPov.lng,
+          closestDisaster.coords[1], // latitude
+          closestDisaster.coords[0]  // longitude
+        )
+
+        for (let i = 1; i < disastersInCountry.length; i++) {
+          const disaster = disastersInCountry[i]
+          const distance = getDistanceBetweenCoords(
+            currentPov.lat,
+            currentPov.lng,
+            disaster.coords[1], // latitude
+            disaster.coords[0]  // longitude
+          )
+
+          if (distance < closestDistance) {
+            closestDistance = distance
+            closestDisaster = disaster
+          }
+        }
+
+        // Use the epicenter coordinates instead of country center
+        targetLat = closestDisaster.coords[1]
+        targetLng = closestDisaster.coords[0]
+      }
+
+      globeRef.current.pointOfView({ lat: targetLat, lng: targetLng, altitude: 0.78 }, 900)
     }
 
     if (!onCountryDrilldown) return
@@ -667,7 +730,7 @@ export default function GlobeScene({
     }
 
     drilldownTimerRef.current = window.setTimeout(() => {
-      onCountryDrilldown({ code, name, center })
+      onCountryDrilldown({ code, name, center: { lat: getFeatureCenter(feature).lat, lng: getFeatureCenter(feature).lng } })
     }, 700)
   }
 
