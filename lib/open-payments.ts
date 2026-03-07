@@ -100,6 +100,7 @@ interface ProcessRecurringContributionOptions {
   currency: string
   accessToken: string
   metadata?: Record<string, string>
+  quoteByDebitAmount?: boolean
 }
 
 export interface IncomingPaymentStatus {
@@ -139,83 +140,83 @@ async function upsertPaymentStatusCache(input: {
 
 export type CreateIncomingPaymentResult =
   | {
-      mode: 'live'
-      paymentUrl: string
-      incomingPaymentId: string
-      currency: string
-    }
+    mode: 'live'
+    paymentUrl: string
+    incomingPaymentId: string
+    currency: string
+  }
   | {
-      mode: 'interaction_required'
-      paymentUrl: string
-      redirectUrl: string
-      continueUri: string
-      continueAccessToken: string
-      finishNonce: string
-      currency: string
-    }
+    mode: 'interaction_required'
+    paymentUrl: string
+    redirectUrl: string
+    continueUri: string
+    continueAccessToken: string
+    finishNonce: string
+    currency: string
+  }
   | {
-      mode: 'demo'
-      paymentUrl: string
-      incomingPaymentId: string
-      currency: string
-    }
+    mode: 'demo'
+    paymentUrl: string
+    incomingPaymentId: string
+    currency: string
+  }
 
 export type CreateOneTimeContributionAuthorizationResult =
   | {
-      mode: 'live'
-      outgoingPaymentId: string
-      needsInteraction: false
-      currency: string
-    }
+    mode: 'live'
+    outgoingPaymentId: string
+    needsInteraction: false
+    currency: string
+  }
   | {
-      mode: 'interaction_required'
-      needsInteraction: true
-      paymentUrl: string
-      redirectUrl: string
-      continueUri: string
-      continueAccessToken: string
-      finishNonce: string
-      quoteId: string
-      currency: string
-    }
+    mode: 'interaction_required'
+    needsInteraction: true
+    paymentUrl: string
+    redirectUrl: string
+    continueUri: string
+    continueAccessToken: string
+    finishNonce: string
+    quoteId: string
+    currency: string
+  }
   | {
-      mode: 'demo'
-      outgoingPaymentId: string
-      needsInteraction: false
-      currency: string
-    }
+    mode: 'demo'
+    outgoingPaymentId: string
+    needsInteraction: false
+    currency: string
+  }
 
 export type CreateOutgoingPaymentResult =
   | {
-      status: 'completed' | 'processing' | 'failed'
-      outgoingPaymentId: string
-      needsInteraction: false
-    }
+    status: 'completed' | 'processing' | 'failed'
+    outgoingPaymentId: string
+    needsInteraction: false
+  }
   | {
-      status: 'pending_interaction'
-      outgoingPaymentId: string
-      needsInteraction: true
-      redirectUrl: string
-      continueUri: string
-      continueAccessToken: string
-      finishNonce: string
-    }
+    status: 'pending_interaction'
+    outgoingPaymentId: string
+    needsInteraction: true
+    redirectUrl: string
+    continueUri: string
+    continueAccessToken: string
+    finishNonce: string
+  }
 
 export type CreateRecurringGrantResult =
   | {
-      mode: 'ready'
-      accessToken: string
-      manageUri: string
-      expiresIn?: number
-    }
+    mode: 'ready'
+    accessToken: string
+    manageUri: string
+    expiresIn?: number
+  }
   | {
-      mode: 'interaction_required'
-      redirectUrl: string
-      continueUri: string
-      continueAccessToken: string
-      finishNonce: string
-      finishKey: string
-    }
+    mode: 'interaction_required'
+    redirectUrl: string
+    continueUri: string
+    continueAccessToken: string
+    finishNonce: string
+    finishKey: string
+  }
 
 export interface ContinueRecurringGrantResult {
   accessToken: string
@@ -262,34 +263,125 @@ async function createRecurringContributionOutgoingFromAccessToken(
   poolWalletAddress: string,
   accessToken: string,
   amount: number,
-  metadata?: Record<string, string>
+  metadata?: Record<string, string>,
+  quoteByDebitAmount = false
 ): Promise<{ status: 'completed' | 'processing' | 'failed'; outgoingPaymentId: string; needsInteraction: false }> {
   const client = await getClient()
-  const memberWallet = await client.walletAddress.get({ url: memberWalletAddress })
-  const poolWallet = await client.walletAddress.get({ url: poolWalletAddress })
 
-  const quote = await client.quote.create(
-    { url: memberWallet.resourceServer, accessToken },
-    {
-      walletAddress: memberWallet.id,
-      receiver: poolWallet.id,
-      method: 'ilp',
-      receiveAmount: {
-        value: toMinorUnits(amount, poolWallet.assetScale),
-        assetCode: poolWallet.assetCode,
-        assetScale: poolWallet.assetScale,
-      },
-    }
-  )
+  console.log(`[open-payments] createRecurringOutgoing: member=${memberWalletAddress} pool=${poolWalletAddress} amount=${amount} quoteByDebit=${quoteByDebitAmount}`)
 
-  const outgoingPayment = await client.outgoingPayment.create(
-    { url: memberWallet.resourceServer, accessToken },
-    {
-      walletAddress: memberWallet.id,
-      quoteId: quote.id,
-      metadata,
+  let memberWallet, poolWallet
+  try {
+    memberWallet = await client.walletAddress.get({ url: memberWalletAddress })
+    console.log(`[open-payments] Member wallet resolved: id=${memberWallet.id} resourceServer=${memberWallet.resourceServer} assetCode=${memberWallet.assetCode} assetScale=${memberWallet.assetScale}`)
+  } catch (err) {
+    console.error('[open-payments] Failed to resolve member wallet:', formatOpenPaymentsError(err))
+    throw err
+  }
+
+  try {
+    poolWallet = await client.walletAddress.get({ url: poolWalletAddress })
+    console.log(`[open-payments] Pool wallet resolved: id=${poolWallet.id} resourceServer=${poolWallet.resourceServer} assetCode=${poolWallet.assetCode} assetScale=${poolWallet.assetScale}`)
+  } catch (err) {
+    console.error('[open-payments] Failed to resolve pool wallet:', formatOpenPaymentsError(err))
+    throw err
+  }
+
+  // First, create an incoming payment on the pool wallet so there's a valid receiver
+  let receiverUrl: string
+  try {
+    // Create a temporary incoming payment on the pool wallet to serve as the receiver
+    const poolWalletNormalized = normalizeWalletAddress(getRequiredEnv('POOL_WALLET_ADDRESS'))
+    const poolWalletMeta = await client.walletAddress.get({ url: poolWalletNormalized })
+
+    // Request an incoming-payment grant on the pool wallet
+    const incomingGrant = await client.grant.request(
+      { url: poolWalletMeta.authServer },
+      {
+        access_token: {
+          access: [{ type: 'incoming-payment', actions: ['create', 'read'] }],
+        },
+      }
+    )
+
+    if (!hasAccessToken(incomingGrant)) {
+      console.warn('[open-payments] Could not get non-interactive incoming payment grant, falling back to wallet address as receiver')
+      receiverUrl = poolWallet.id
+    } else {
+      const incomingPayment = await client.incomingPayment.create(
+        { url: poolWalletMeta.resourceServer, accessToken: incomingGrant.access_token.value },
+        {
+          walletAddress: poolWalletMeta.id,
+          incomingAmount: quoteByDebitAmount ? undefined : {
+            value: toMinorUnits(amount, poolWalletMeta.assetScale),
+            assetCode: poolWalletMeta.assetCode,
+            assetScale: poolWalletMeta.assetScale,
+          },
+          expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        }
+      )
+
+      receiverUrl = incomingPayment.id
+      console.log(`[open-payments] Created incoming payment as receiver: ${receiverUrl}`)
     }
-  )
+  } catch (err) {
+    console.warn('[open-payments] Failed to create incoming payment receiver, falling back to wallet address:', formatOpenPaymentsError(err))
+    receiverUrl = poolWallet.id
+  }
+
+  let quote
+  try {
+    const quoteParams = quoteByDebitAmount
+      ? {
+        walletAddress: memberWallet.id,
+        receiver: receiverUrl,
+        method: 'ilp' as const,
+        debitAmount: {
+          value: toMinorUnits(amount, memberWallet.assetScale),
+          assetCode: memberWallet.assetCode,
+          assetScale: memberWallet.assetScale,
+        },
+      }
+      : {
+        walletAddress: memberWallet.id,
+        receiver: receiverUrl,
+        method: 'ilp' as const,
+        receiveAmount: {
+          value: toMinorUnits(amount, poolWallet.assetScale),
+          assetCode: poolWallet.assetCode,
+          assetScale: poolWallet.assetScale,
+        },
+      }
+
+    console.log(`[open-payments] Creating quote with params:`, JSON.stringify(quoteParams))
+    quote = await client.quote.create(
+      { url: memberWallet.resourceServer, accessToken },
+      quoteParams
+    )
+    console.log(`[open-payments] Quote created: id=${quote.id} debitAmount=${JSON.stringify(quote.debitAmount)} receiveAmount=${JSON.stringify(quote.receiveAmount)}`)
+  } catch (err) {
+    console.error('[open-payments] ❌ Quote creation failed:', formatOpenPaymentsError(err))
+    console.error('[open-payments] Full quote error:', JSON.stringify(err, Object.getOwnPropertyNames(err as object), 2))
+    throw err
+  }
+
+  let outgoingPayment
+  try {
+    console.log(`[open-payments] Creating outgoing payment with quoteId=${quote.id}`)
+    outgoingPayment = await client.outgoingPayment.create(
+      { url: memberWallet.resourceServer, accessToken },
+      {
+        walletAddress: memberWallet.id,
+        quoteId: quote.id,
+        metadata,
+      }
+    )
+    console.log(`[open-payments] Outgoing payment created: id=${outgoingPayment.id} failed=${outgoingPayment.failed}`)
+  } catch (err) {
+    console.error('[open-payments] ❌ Outgoing payment creation failed:', formatOpenPaymentsError(err))
+    console.error('[open-payments] Full outgoing error:', JSON.stringify(err, Object.getOwnPropertyNames(err as object), 2))
+    throw err
+  }
 
   return {
     status: outgoingPayment.failed ? 'failed' : 'processing',
@@ -502,6 +594,54 @@ async function fetchJson(url: string): Promise<unknown> {
   return res.json()
 }
 
+interface CreateReusableOutgoingGrantOptions {
+  grantId: string
+  memberWalletAddress: string
+  maxAmount: number
+  currency: string
+  callbackUrl?: string
+}
+
+interface RotatedAccessTokenPayload {
+  value: string
+  manage?: string
+  expires_in?: number
+}
+
+export async function rotateAccessToken(params: {
+  manageUri: string
+  accessToken: string
+}): Promise<{
+  accessToken: string
+  manageUri: string
+  expiresIn?: number
+}> {
+  const client = await getClient()
+
+  try {
+    const rotated = await client.token.rotate({
+      url: params.manageUri,
+      accessToken: params.accessToken,
+    })
+
+    const newValue = rotated?.access_token?.value
+    const newManage = rotated?.access_token?.manage
+
+    if (typeof newValue !== 'string' || newValue.length === 0) {
+      throw new Error('Open Payments token rotation response missing access token value')
+    }
+
+    return {
+      accessToken: newValue,
+      manageUri: typeof newManage === 'string' && newManage.length > 0 ? newManage : params.manageUri,
+      expiresIn: rotated?.access_token?.expires_in,
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'Unknown rotation error'
+    throw new Error(`Failed to rotate Open Payments access token: ${message}`)
+  }
+}
+
 async function createIncomingFromAccessToken(
   accessToken: string,
   amount: number,
@@ -599,7 +739,7 @@ export async function createIncomingPayment({
     return createIncomingFromAccessToken(grant.access_token.value, amount, currency, contributionId)
   }
 
-if (!hasInteraction(grant)) {
+  if (!hasInteraction(grant)) {
     throw new Error('Incoming payment grant did not return usable continuation data')
   }
 
@@ -680,7 +820,7 @@ export async function createOneTimeContributionAuthorization({
 
   const finishNonce = crypto.randomUUID()
 
-const grant = await client.grant.request(
+  const grant = await client.grant.request(
     { url: wallet.authServer },
     {
       access_token: {
@@ -718,7 +858,7 @@ const grant = await client.grant.request(
     }
   }
 
-if (!hasInteraction(grant)) {
+  if (!hasInteraction(grant)) {
     throw new Error('One-time contribution grant did not return usable continuation data')
   }
 
@@ -931,7 +1071,7 @@ export async function createOutgoingPayment({
     )
   }
 
-if (!hasInteraction(grant)) {
+  if (!hasInteraction(grant)) {
     throw new Error('Outgoing payment grant did not return usable continuation data')
   }
 
@@ -1063,7 +1203,7 @@ export async function createRecurringContributionGrant({
 
   const finishNonce = crypto.randomUUID()
 
-const grant = await client.grant.request(
+  const grant = await client.grant.request(
     { url: wallet.authServer },
     {
       access_token: {
@@ -1107,8 +1247,91 @@ const grant = await client.grant.request(
     }
   }
 
-if (!hasInteraction(grant)) {
+  if (!hasInteraction(grant)) {
     throw new Error('Recurring grant did not return usable continuation data')
+  }
+
+  return {
+    mode: 'interaction_required',
+    redirectUrl: grant.interact.redirect,
+    continueUri: grant.continue.uri,
+    continueAccessToken: grant.continue.access_token.value,
+    finishNonce,
+    finishKey: grant.interact.finish,
+  }
+}
+
+export async function createReusableOutgoingGrant({
+  grantId,
+  memberWalletAddress,
+  maxAmount,
+  currency: _currency,
+  callbackUrl: explicitCallback,
+}: CreateReusableOutgoingGrantOptions): Promise<CreateRecurringGrantResult> {
+  if (shouldRunDemoMode()) {
+    return {
+      mode: 'ready',
+      accessToken: `demo-reusable-token-${grantId}`,
+      manageUri: `demo-reusable-manage-${grantId}`,
+      expiresIn: 3600,
+    }
+  }
+
+  const client = await getClient()
+  const memberWallet = normalizeWalletAddress(memberWalletAddress)
+  const wallet = await client.walletAddress.get({ url: memberWallet })
+
+  const finishNonce = crypto.randomUUID()
+
+  const grant = await client.grant.request(
+    { url: wallet.authServer },
+    {
+      access_token: {
+        access: [
+          {
+            type: 'quote',
+            actions: ['create', 'read'],
+          },
+          {
+            type: 'outgoing-payment',
+            actions: ['read', 'create', 'list'],
+            identifier: wallet.id,
+            limits: {
+              debitAmount: {
+                value: toMinorUnits(maxAmount, wallet.assetScale),
+                assetCode: wallet.assetCode,
+                assetScale: wallet.assetScale,
+              },
+              // Repeating interval with no end date — debitAmount resets each period,
+              // making this grant reusable across multiple payments.
+              // R/ = repeating, no end count; PT1M = every 1 minute for fast demo cycling.
+              interval: `R/${new Date().toISOString()}/PT1M`,
+            },
+          },
+        ],
+      },
+      interact: {
+        start: ['redirect'],
+        finish: {
+          method: 'redirect',
+          uri: callbackUrl('recurring', grantId, explicitCallback),
+          nonce: finishNonce,
+        },
+      },
+    }
+  )
+
+  if (hasAccessToken(grant)) {
+    return {
+      mode: 'ready',
+      accessToken: grant.access_token.value,
+      manageUri: grant.access_token.manage,
+      expiresIn: grant.access_token.expires_in,
+    }
+  }
+
+  if (!hasInteraction(grant)) {
+    throw new Error('Reusable outgoing grant did not return usable continuation data')
   }
 
   return {
@@ -1156,6 +1379,7 @@ export async function processRecurringContribution({
   currency: _currency,
   accessToken,
   metadata,
+  quoteByDebitAmount = false,
 }: ProcessRecurringContributionOptions): Promise<{ status: 'completed' | 'processing' | 'failed'; outgoingPaymentId: string; needsInteraction: false }> {
   if (shouldRunDemoMode()) {
     return {
@@ -1172,6 +1396,7 @@ export async function processRecurringContribution({
     poolWalletAddress,
     accessToken,
     amount,
-    metadata
+    metadata,
+    quoteByDebitAmount
   )
 }
