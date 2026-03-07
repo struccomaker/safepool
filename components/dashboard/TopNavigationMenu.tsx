@@ -542,7 +542,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
 
   return (
     <>
-      <div className="rounded-lg bg-black/45 p-1 backdrop-blur-sm">
+      <div className="rounded-lg p-1">
         <div className="flex items-center gap-1">
           {!authed ? (
             <button className={itemClass} onClick={() => void handleSignIn()} type="button">
