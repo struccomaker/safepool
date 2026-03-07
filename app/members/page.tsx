@@ -1,10 +1,9 @@
 // Server Component — global pool members
 import type { Member } from '@/types'
-import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 
 async function getMembers(): Promise<Member[]> {
   try {
-    const res = await fetch(`${process.env.NEXTAUTH_URL}/api/members/${GLOBAL_POOL_ID}`, { cache: 'no-store' })
+    const res = await fetch(`${process.env.NEXTAUTH_URL}/api/global/members`, { cache: 'no-store' })
     if (!res.ok) throw new Error('Failed')
     return res.json()
   } catch {

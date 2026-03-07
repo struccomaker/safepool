@@ -6,7 +6,7 @@ import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
-export async function GET(_req: Request, context: { params: Promise<{ poolId: string }> }) {
+export async function GET() {
   try {
     const supabase = await createSupabaseServerClient()
     const {

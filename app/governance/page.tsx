@@ -9,7 +9,7 @@ export default function GovernancePage() {
   const [loading, setLoading] = useState(false)
 
   const loadProposals = () =>
-    fetch(`/api/governance/proposals/${GLOBAL_POOL_ID}`)
+    fetch('/api/global/governance/proposals')
       .then(r => r.json())
       .then(setProposals)
       .catch(() => {})
