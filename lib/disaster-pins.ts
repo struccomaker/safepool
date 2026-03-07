@@ -1,6 +1,6 @@
 /**
  * Single source of truth for all demo disaster locations.
- * Both GlobeScene (3D) and MapcnDrilldownMap (2D) import from here
+ * Both GlobeScene (3D) and CountryDrilldownMap (2D) import from here
  * so epicentre positions are guaranteed to be identical.
  *
  * Coordinates verified against real city centres:

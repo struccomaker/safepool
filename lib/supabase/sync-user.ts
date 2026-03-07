@@ -1,5 +1,5 @@
-import { insertRows, queryRows } from '@/lib/clickhouse'
 import { normalizeWalletAddress } from '@/lib/wallet-address'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 
 interface SupabaseUserLike {
   id: string
@@ -74,33 +74,49 @@ function deriveWalletAddress(user: SupabaseUserLike): string {
 }
 
 export async function getOrCreateUserWalletAddress(user: SupabaseUserLike): Promise<string> {
+  const admin = createSupabaseAdminClient()
   const supabaseWalletAddress = getSupabaseWalletAddress(user)
 
-  const walletRows = await queryRows<{ wallet_address: string }>(
-    `
-    SELECT wallet_address
-    FROM user_wallets
-    WHERE user_id = toUUID({user_id:String})
-      AND is_default = 1
-    ORDER BY created_at DESC
-    LIMIT 1
-    `,
-    { user_id: user.id }
-  )
+  const { data: walletRows, error: walletQueryError } = await admin
+    .from('user_wallets')
+    .select('wallet_address')
+    .eq('user_id', user.id)
+    .eq('is_default', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (walletQueryError) {
+    throw new Error(`Failed to load user wallet binding: ${walletQueryError.message}`)
+  }
 
   if (supabaseWalletAddress) {
     if (walletRows.length > 0 && normalizeWalletAddress(walletRows[0].wallet_address) === supabaseWalletAddress) {
       return supabaseWalletAddress
     }
 
-    await insertRows('user_wallets', [{
-      id: crypto.randomUUID(),
-      user_id: user.id,
-      wallet_address: supabaseWalletAddress,
-      provider: getWalletProvider(supabaseWalletAddress),
-      status: 'provisioned',
-      is_default: 1,
-    }])
+    const { error: clearDefaultsError } = await admin
+      .from('user_wallets')
+      .update({ is_default: false })
+      .eq('user_id', user.id)
+
+    if (clearDefaultsError) {
+      throw new Error(`Failed to update wallet defaults: ${clearDefaultsError.message}`)
+    }
+
+    const { error: insertWalletError } = await admin
+      .from('user_wallets')
+      .insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        wallet_address: supabaseWalletAddress,
+        provider: getWalletProvider(supabaseWalletAddress),
+        status: 'provisioned',
+        is_default: true,
+      })
+
+    if (insertWalletError) {
+      throw new Error(`Failed to persist user wallet binding: ${insertWalletError.message}`)
+    }
 
     return supabaseWalletAddress
   }
@@ -116,34 +132,46 @@ export async function getOrCreateUserWalletAddress(user: SupabaseUserLike): Prom
     : deriveWalletAddress(user)
   const status = hasPreprovisionedWallets ? 'provisioned' : 'manual_required'
 
-  await insertRows('user_wallets', [{
-    id: crypto.randomUUID(),
-    user_id: user.id,
-    wallet_address: walletAddress,
-    provider: getWalletProvider(walletAddress),
-    status,
-    is_default: 1,
-  }])
+  const { error: clearDefaultsError } = await admin
+    .from('user_wallets')
+    .update({ is_default: false })
+    .eq('user_id', user.id)
+
+  if (clearDefaultsError) {
+    throw new Error(`Failed to clear existing default wallets: ${clearDefaultsError.message}`)
+  }
+
+  const { error: insertWalletError } = await admin
+    .from('user_wallets')
+    .insert({
+      id: crypto.randomUUID(),
+      user_id: user.id,
+      wallet_address: walletAddress,
+      provider: getWalletProvider(walletAddress),
+      status,
+      is_default: true,
+    })
+
+  if (insertWalletError) {
+    throw new Error(`Failed to create default wallet binding: ${insertWalletError.message}`)
+  }
 
   return walletAddress
 }
 
 export async function getLatestUserWalletBinding(userId: string): Promise<UserWalletBinding | null> {
-  const rows = await queryRows<{
-    wallet_address: string
-    status: string
-    provider: string
-  }>(
-    `
-    SELECT wallet_address, toString(status) AS status, provider
-    FROM user_wallets
-    WHERE user_id = toUUID({user_id:String})
-      AND is_default = 1
-    ORDER BY created_at DESC
-    LIMIT 1
-    `,
-    { user_id: userId }
-  )
+  const admin = createSupabaseAdminClient()
+  const { data: rows, error } = await admin
+    .from('user_wallets')
+    .select('wallet_address,status,provider')
+    .eq('user_id', userId)
+    .eq('is_default', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (error) {
+    throw new Error(`Failed to query user wallet binding: ${error.message}`)
+  }
 
   if (rows.length === 0) return null
 
@@ -155,22 +183,17 @@ export async function getLatestUserWalletBinding(userId: string): Promise<UserWa
 }
 
 export async function syncSupabaseUserToClickHouse(user: SupabaseUserLike): Promise<void> {
-  const existing = await queryRows<{ id: string }>(
-    `
-    SELECT toString(id) AS id
-    FROM users
-    WHERE id = toUUID({id:String})
-    LIMIT 1
-    `,
-    { id: user.id }
-  )
-
-  if (existing.length === 0) {
-    await insertRows('users', [{
+  const admin = createSupabaseAdminClient()
+  const { error: upsertUserError } = await admin
+    .from('users')
+    .upsert({
       id: user.id,
       email: user.email ?? '',
       name: getDisplayName(user),
-    }])
+    }, { onConflict: 'id' })
+
+  if (upsertUserError) {
+    throw new Error(`Failed to sync authenticated user: ${upsertUserError.message}`)
   }
 
   await getOrCreateUserWalletAddress(user)

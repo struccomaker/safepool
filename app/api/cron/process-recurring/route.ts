@@ -1,9 +1,10 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { insertRows, queryRows, runCommand, toClickHouseDateTime } from '@/lib/clickhouse'
+import { insertRows, toClickHouseDateTime } from '@/lib/clickhouse'
 import { pollOutgoingPaymentCompletion, processRecurringContribution } from '@/lib/open-payments'
 import { decryptSecret } from '@/lib/secret-crypto'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 
 interface RecurringRow {
   [key: string]: unknown
@@ -38,24 +39,20 @@ export async function GET(req: Request) {
   }
 
   try {
-    const recurringRows = await queryRows<RecurringRow>(
-      `
-      SELECT
-        toString(id) AS id,
-        toString(member_id) AS member_id,
-        toString(pool_id) AS pool_id,
-        member_wallet_address,
-        amount,
-        currency,
-        interval,
-        access_token
-      FROM recurring_contributions
-      WHERE status = 'active'
-        AND next_payment_date <= now()
-      ORDER BY next_payment_date ASC
-      LIMIT 100
-      `
-    )
+    const admin = createSupabaseAdminClient()
+    const { data: recurringRowsData, error: recurringRowsError } = await admin
+      .from('recurring_contributions')
+      .select('id,member_id,pool_id,member_wallet_address,amount,currency,interval,access_token')
+      .eq('status', 'active')
+      .lte('next_payment_date', new Date().toISOString())
+      .order('next_payment_date', { ascending: true })
+      .limit(100)
+
+    if (recurringRowsError) {
+      return NextResponse.json({ error: `Failed to load due recurring contributions: ${recurringRowsError.message}` }, { status: 500 })
+    }
+
+    const recurringRows = recurringRowsData as RecurringRow[]
 
     let processed = 0
     let completed = 0
@@ -82,31 +79,43 @@ export async function GET(req: Request) {
           ? await pollOutgoingPaymentCompletion({ paymentId: payout.outgoingPaymentId })
           : { paymentId: payout.outgoingPaymentId, state: payout.status, debitAmount: Number(recurring.amount) }
 
-        await insertRows('payment_status_cache', [{
+        await admin.from('payment_status_cache').upsert({
           payment_id: payout.outgoingPaymentId,
           payment_type: 'outgoing',
           state: finalStatus.state,
           received_amount: Number(recurring.amount),
-        }])
+          last_checked: new Date().toISOString(),
+        }, { onConflict: 'payment_id' })
 
         if (finalStatus.state !== 'completed') {
           const retryAt = new Date(Date.now() + 5 * 60 * 1000)
-          await runCommand(
-            `
-            ALTER TABLE recurring_contributions
-            UPDATE
-              next_payment_date = parseDateTimeBestEffort({next_payment_date:String}),
-              updated_at = now()
-            WHERE id = toUUID({id:String})
-            `,
-            {
-              next_payment_date: toClickHouseDateTime(retryAt),
-              id: recurring.id,
-            }
-          )
+          await admin
+            .from('recurring_contributions')
+            .update({
+              next_payment_date: retryAt.toISOString(),
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', recurring.id)
 
           failed += 1
           continue
+        }
+
+        const { error: contributionInsertError } = await admin
+          .from('contributions')
+          .insert({
+            id: contributionId,
+            pool_id: recurring.pool_id,
+            member_id: recurring.member_id,
+            amount: Number(recurring.amount),
+            currency: recurring.currency,
+            incoming_payment_id: payout.outgoingPaymentId,
+            contributed_at: new Date().toISOString(),
+            status: 'completed',
+          })
+
+        if (contributionInsertError) {
+          throw new Error(`Failed to persist recurring contribution: ${contributionInsertError.message}`)
         }
 
         await insertRows('contributions', [{
@@ -121,19 +130,17 @@ export async function GET(req: Request) {
         }])
 
         const nextPaymentDate = addIntervalDate(new Date(), recurring.interval)
-        await runCommand(
-          `
-          ALTER TABLE recurring_contributions
-          UPDATE
-            next_payment_date = parseDateTimeBestEffort({next_payment_date:String}),
-            updated_at = now()
-          WHERE id = toUUID({id:String})
-          `,
-          {
-            next_payment_date: toClickHouseDateTime(nextPaymentDate),
-            id: recurring.id,
-          }
-        )
+        const { error: recurringUpdateError } = await admin
+          .from('recurring_contributions')
+          .update({
+            next_payment_date: nextPaymentDate.toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', recurring.id)
+
+        if (recurringUpdateError) {
+          throw new Error(`Failed to update next recurring payment date: ${recurringUpdateError.message}`)
+        }
 
         completed += 1
       } catch (err) {

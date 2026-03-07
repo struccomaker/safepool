@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { GlobeMethods } from 'react-globe.gl'
-import { AnimationAction, AnimationClip, AnimationMixer, Box3, Group, Vector3 } from 'three'
+import { AnimationAction, AnimationClip, AnimationMixer, Box3, Euler, Group, Vector3 } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { DISASTER_PINS, getDisastersByCountry } from '@/lib/disaster-pins'
@@ -313,6 +313,8 @@ export default function GlobeScene({
   const godzillaMixerRef = useRef<AnimationMixer | null>(null)
   const godzillaWalkActionRef = useRef<AnimationAction | null>(null)
   const godzillaHeadingRef = useRef(0)
+  const godzillaPlacementRef = useRef<GodzillaPlacement | null>(null)
+  const wasMovingRef = useRef(false)
   const fpsSampleRef = useRef({
     frames: 0,
     elapsedMs: 0,
@@ -504,45 +506,57 @@ export default function GlobeScene({
         walkAction.setEffectiveTimeScale(isMoving ? 2.5 : 0.35)
       }
 
-      if (isMoving || rotateInput !== 0) {
-        const movementDelta = deltaSeconds
+      const placement = godzillaPlacementRef.current
+      const isActive = (isMoving || rotateInput !== 0) && !!placement
 
+      if (isActive && placement) {
         const moveSpeedDegPerSecond = 22
         const rotationSpeedRadPerSecond = 2.2
 
-        setGodzillaPlacement((prev) => {
-          if (!prev) return prev
+        const nextHeading = godzillaHeadingRef.current + rotateInput * rotationSpeedRadPerSecond * deltaSeconds
+        godzillaHeadingRef.current = nextHeading
+        placement.object.rotation.y = nextHeading
 
-          const nextHeading = godzillaHeadingRef.current + rotateInput * rotationSpeedRadPerSecond * movementDelta
-          godzillaHeadingRef.current = nextHeading
-          prev.object.rotation.y = nextHeading
-
-          if (!isMoving) {
-            return {
-              ...prev,
-              altitude: 0.005,
-            }
-          }
-
+        if (isMoving) {
           const normalizedX = Math.sin(nextHeading)
           const normalizedY = Math.cos(nextHeading)
 
-          const step = moveSpeedDegPerSecond * movementDelta
+          const step = moveSpeedDegPerSecond * deltaSeconds
           const latStep = normalizedY * step
-          const cosLat = Math.max(Math.cos(toRadians(prev.lat)), 0.2)
+          const cosLat = Math.max(Math.cos(toRadians(placement.lat)), 0.2)
           const lngStep = (normalizedX * step) / cosLat
 
-          const targetLat = clampLatitude(prev.lat + latStep)
-          const targetLng = wrapLongitude(prev.lng + lngStep)
+          placement.lat = clampLatitude(placement.lat + latStep)
+          placement.lng = wrapLongitude(placement.lng + lngStep)
+        }
 
-          return {
-            ...prev,
-            lat: targetLat,
-            lng: targetLng,
-            altitude: 0.005,
-          }
-        })
+        // Directly reposition the Three.js wrapper every frame — zero React overhead
+        // Uses the exact same formula as three-globe's internal polar2Cartesian + Euler
+        const wrapper = placement.object.parent
+        if (wrapper) {
+          const phi = ((90 - placement.lat) * Math.PI) / 180
+          const theta = ((90 - placement.lng) * Math.PI) / 180
+          const r = 100 * (1 + placement.altitude) // GLOBE_RADIUS = 100
+          const sinPhi = Math.sin(phi)
+          wrapper.position.set(
+            r * sinPhi * Math.cos(theta),
+            r * Math.cos(phi),
+            r * sinPhi * Math.sin(theta)
+          )
+          // three-globe uses this exact Euler for objectFacesSurface
+          const latRad = (-placement.lat * Math.PI) / 180
+          const lngRad = (placement.lng * Math.PI) / 180
+          wrapper.setRotationFromEuler(new Euler(latRad, lngRad, 0, 'YXZ'))
+        }
       }
+
+      // Flush final position to React state when movement stops
+      if (!isActive && wasMovingRef.current && placement) {
+        const updated = { ...placement }
+        godzillaPlacementRef.current = updated
+        setGodzillaPlacement(updated)
+      }
+      wasMovingRef.current = isActive
 
       rafId = window.requestAnimationFrame(tick)
     }
@@ -785,13 +799,15 @@ export default function GlobeScene({
     }
 
     const markerId = Date.now()
-    setGodzillaPlacement({
+    const newPlacement = {
       id: markerId,
       lat: coords.lat,
       lng: coords.lng,
       altitude: 0.005,
       object: model,
-    })
+    }
+    godzillaPlacementRef.current = newPlacement
+    setGodzillaPlacement(newPlacement)
 
     window.dispatchEvent(new CustomEvent('safepool:godzilla-spawned'))
   }
@@ -811,6 +827,7 @@ export default function GlobeScene({
       d: false,
     }
 
+    godzillaPlacementRef.current = null
     setGodzillaPlacement(null)
     window.dispatchEvent(new CustomEvent('safepool:godzilla-cleared'))
   }

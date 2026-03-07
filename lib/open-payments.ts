@@ -1,5 +1,7 @@
 import { createAuthenticatedClient } from '@interledger/open-payments'
-import { insertRows } from '@/lib/clickhouse'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { normalizeWalletAddress } from '@/lib/wallet-address'
 
 let cachedClient: Awaited<ReturnType<typeof createAuthenticatedClient>> | null = null
@@ -15,6 +17,7 @@ interface GrantWithAccessToken {
 interface GrantWithInteraction {
   interact: {
     redirect: string
+    finish: string
   }
   continue: {
     uri: string
@@ -27,7 +30,6 @@ interface GrantWithInteraction {
 interface ContinueGrantDetails {
   continueUri: string
   continueAccessToken: string
-  finishNonce: string
 }
 
 interface CreateIncomingPaymentOptions {
@@ -41,6 +43,22 @@ interface ContinuedIncomingPaymentOptions {
   contributionId: string
   amount: number
   currency: string
+  continueGrant: ContinueGrantDetails
+  interactRef: string
+}
+
+interface CreateOneTimeContributionAuthorizationOptions {
+  contributionId: string
+  memberWalletAddress: string
+  incomingPaymentId: string
+  amount: number
+  currency: string
+  callbackUrl?: string
+}
+
+interface ContinueOneTimeContributionAuthorizationOptions {
+  memberWalletAddress: string
+  quoteId: string
   continueGrant: ContinueGrantDetails
   interactRef: string
 }
@@ -97,11 +115,34 @@ export interface OutgoingPaymentStatus {
   debitAmount: number
 }
 
+async function upsertPaymentStatusCache(input: {
+  paymentId: string
+  paymentType: 'incoming' | 'outgoing'
+  state: 'pending' | 'processing' | 'completed' | 'failed'
+  receivedAmount: number
+}): Promise<void> {
+  const admin = createSupabaseAdminClient()
+  const { error } = await admin
+    .from('payment_status_cache')
+    .upsert({
+      payment_id: input.paymentId,
+      payment_type: input.paymentType,
+      state: input.state,
+      received_amount: input.receivedAmount,
+      last_checked: new Date().toISOString(),
+    }, { onConflict: 'payment_id' })
+
+  if (error) {
+    throw new Error(`Failed to persist payment status cache: ${error.message}`)
+  }
+}
+
 export type CreateIncomingPaymentResult =
   | {
       mode: 'live'
       paymentUrl: string
       incomingPaymentId: string
+      currency: string
     }
   | {
       mode: 'interaction_required'
@@ -110,11 +151,38 @@ export type CreateIncomingPaymentResult =
       continueUri: string
       continueAccessToken: string
       finishNonce: string
+      currency: string
     }
   | {
       mode: 'demo'
       paymentUrl: string
       incomingPaymentId: string
+      currency: string
+    }
+
+export type CreateOneTimeContributionAuthorizationResult =
+  | {
+      mode: 'live'
+      outgoingPaymentId: string
+      needsInteraction: false
+      currency: string
+    }
+  | {
+      mode: 'interaction_required'
+      needsInteraction: true
+      paymentUrl: string
+      redirectUrl: string
+      continueUri: string
+      continueAccessToken: string
+      finishNonce: string
+      quoteId: string
+      currency: string
+    }
+  | {
+      mode: 'demo'
+      outgoingPaymentId: string
+      needsInteraction: false
+      currency: string
     }
 
 export type CreateOutgoingPaymentResult =
@@ -146,6 +214,7 @@ export type CreateRecurringGrantResult =
       continueUri: string
       continueAccessToken: string
       finishNonce: string
+      finishKey: string
     }
 
 export interface ContinueRecurringGrantResult {
@@ -162,12 +231,142 @@ function getRequiredEnv(name: string): string {
   return value
 }
 
-function shouldRunDemoMode(): boolean {
-  return process.env.DEMO_MODE === 'true'
+async function createOneTimeOutgoingFromAccessToken(
+  memberWalletAddress: string,
+  quoteId: string,
+  accessToken: string
+): Promise<{ outgoingPaymentId: string }> {
+  const client = await getClient()
+  const memberWallet = await client.walletAddress.get({ url: memberWalletAddress })
+
+  const outgoingPayment = await client.outgoingPayment.create(
+    { url: memberWallet.resourceServer, accessToken },
+    {
+      walletAddress: memberWallet.id,
+      quoteId,
+    }
+  )
+
+  return { outgoingPaymentId: outgoingPayment.id }
 }
 
-function toMinorUnits(amount: number): string {
-  return String(Math.round(amount * 100))
+async function createRecurringContributionOutgoingFromAccessToken(
+  memberWalletAddress: string,
+  poolWalletAddress: string,
+  accessToken: string,
+  amount: number,
+  metadata?: Record<string, string>
+): Promise<{ status: 'completed' | 'processing' | 'failed'; outgoingPaymentId: string; needsInteraction: false }> {
+  const client = await getClient()
+  const memberWallet = await client.walletAddress.get({ url: memberWalletAddress })
+  const poolWallet = await client.walletAddress.get({ url: poolWalletAddress })
+
+  const quote = await client.quote.create(
+    { url: memberWallet.resourceServer, accessToken },
+    {
+      walletAddress: memberWallet.id,
+      receiver: poolWallet.id,
+      method: 'ilp',
+      receiveAmount: {
+        value: toMinorUnits(amount, poolWallet.assetScale),
+        assetCode: poolWallet.assetCode,
+        assetScale: poolWallet.assetScale,
+      },
+    }
+  )
+
+  const outgoingPayment = await client.outgoingPayment.create(
+    { url: memberWallet.resourceServer, accessToken },
+    {
+      walletAddress: memberWallet.id,
+      quoteId: quote.id,
+      metadata,
+    }
+  )
+
+  return {
+    status: outgoingPayment.failed ? 'failed' : 'processing',
+    outgoingPaymentId: outgoingPayment.id,
+    needsInteraction: false,
+  }
+}
+
+function maybeDecodeBase64(value: string): string {
+  try {
+    const decoded = Buffer.from(value, 'base64').toString('utf8')
+    return decoded
+  } catch {
+    return value
+  }
+}
+
+function isPemPrivateKey(value: string): boolean {
+  return value.includes('-----BEGIN') && value.includes('PRIVATE KEY-----')
+}
+
+function looksLikeBase64(value: string): boolean {
+  if (!value) return false
+  if (value.length % 4 !== 0) return false
+  return /^[A-Za-z0-9+/=]+$/.test(value)
+}
+
+function wrapDerBase64AsPem(value: string): string {
+  const chunks = value.match(/.{1,64}/g) ?? [value]
+  return `-----BEGIN PRIVATE KEY-----\n${chunks.join('\n')}\n-----END PRIVATE KEY-----`
+}
+
+function readKeyFromPathIfExists(candidate: string): string | null {
+  const trimmed = candidate.trim()
+  if (!trimmed) return null
+
+  const possiblePaths = [trimmed, resolve(process.cwd(), trimmed)]
+  for (const path of possiblePaths) {
+    if (!existsSync(path)) continue
+    const fileContents = readFileSync(path, 'utf8').trim()
+    if (!fileContents) continue
+    return fileContents
+  }
+
+  return null
+}
+
+function normalizePrivateKeyEnv(raw: string): string {
+  const trimmed = raw.trim().replace(/^"|"$/g, '')
+  const withNewlines = trimmed.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n')
+
+  if (isPemPrivateKey(withNewlines)) {
+    return withNewlines
+  }
+
+  const maybePathValue = readKeyFromPathIfExists(withNewlines)
+  if (maybePathValue) {
+    const normalizedFileValue = maybePathValue.replace(/\r\n/g, '\n').replace(/\\n/g, '\n')
+    if (isPemPrivateKey(normalizedFileValue)) {
+      return normalizedFileValue
+    }
+  }
+
+  const decoded = maybeDecodeBase64(withNewlines).trim()
+  if (isPemPrivateKey(decoded)) {
+    return decoded.replace(/\\n/g, '\n')
+  }
+
+  if (looksLikeBase64(withNewlines)) {
+    return wrapDerBase64AsPem(withNewlines)
+  }
+
+  throw new Error(
+    'OPEN_PAYMENTS_PRIVATE_KEY is not a valid key input. Use PEM text, base64-encoded PEM, or a valid path to a PEM file.'
+  )
+}
+
+function shouldRunDemoMode(): boolean {
+  const raw = process.env.DEMO_MODE?.trim().toLowerCase()
+  return raw === 'true' || raw === '1' || raw === 'yes'
+}
+
+function toMinorUnits(amount: number, assetScale: number): string {
+  return String(Math.round(amount * (10 ** assetScale)))
 }
 
 function fromMinorUnits(value?: string): number {
@@ -198,25 +397,54 @@ function hasAccessToken(grant: unknown): grant is GrantWithAccessToken {
 function hasInteraction(grant: unknown): grant is GrantWithInteraction {
   if (typeof grant !== 'object' || grant === null) return false
   const candidate = grant as {
-    interact?: { redirect?: unknown }
+    interact?: { redirect?: unknown; finish?: unknown }
     continue?: { uri?: unknown; access_token?: { value?: unknown } }
   }
   return typeof candidate.interact?.redirect === 'string'
+    && typeof candidate.interact?.finish === 'string'
     && typeof candidate.continue?.uri === 'string'
     && typeof candidate.continue?.access_token?.value === 'string'
+}
+
+interface OpenPaymentsErrorLike {
+  message?: string
+  description?: string
+  status?: number
+  code?: string
+}
+
+export function formatOpenPaymentsError(err: unknown): string {
+  if (typeof err !== 'object' || err === null) {
+    return 'Internal error'
+  }
+
+  const e = err as OpenPaymentsErrorLike
+  const parts = [
+    e.message,
+    e.description,
+    typeof e.status === 'number' ? `status=${e.status}` : undefined,
+    e.code ? `code=${e.code}` : undefined,
+  ].filter((value): value is string => Boolean(value && value.trim().length > 0))
+
+  if (parts.length === 0) {
+    return 'Internal error'
+  }
+
+  return parts.join(' | ')
 }
 
 async function getClient() {
   if (cachedClient) return cachedClient
 
   const keyId = getRequiredEnv('OPEN_PAYMENTS_KEY_ID')
-  const privateKey = getRequiredEnv('OPEN_PAYMENTS_PRIVATE_KEY')
+  const privateKey = normalizePrivateKeyEnv(getRequiredEnv('OPEN_PAYMENTS_PRIVATE_KEY'))
   const walletAddressUrl = normalizeWalletAddress(getRequiredEnv('POOL_WALLET_ADDRESS'))
 
   cachedClient = await createAuthenticatedClient({
     keyId,
     privateKey,
     walletAddressUrl,
+    validateResponses: false,
   })
 
   return cachedClient
@@ -239,9 +467,9 @@ async function fetchJson(url: string): Promise<unknown> {
 async function createIncomingFromAccessToken(
   accessToken: string,
   amount: number,
-  currency: string,
+  _currency: string,
   contributionId: string
-): Promise<{ mode: 'live'; paymentUrl: string; incomingPaymentId: string }> {
+): Promise<{ mode: 'live'; paymentUrl: string; incomingPaymentId: string; currency: string }> {
   const client = await getClient()
   const poolWalletAddress = normalizeWalletAddress(getRequiredEnv('POOL_WALLET_ADDRESS'))
   const poolWallet = await client.walletAddress.get({ url: poolWalletAddress })
@@ -251,9 +479,9 @@ async function createIncomingFromAccessToken(
     {
       walletAddress: poolWallet.id,
       incomingAmount: {
-        value: toMinorUnits(amount),
-        assetCode: currency,
-        assetScale: 2,
+        value: toMinorUnits(amount, poolWallet.assetScale),
+        assetCode: poolWallet.assetCode,
+        assetScale: poolWallet.assetScale,
       },
       expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
     }
@@ -263,6 +491,7 @@ async function createIncomingFromAccessToken(
     mode: 'live',
     paymentUrl: incomingPayment.id,
     incomingPaymentId: incomingPayment.id,
+    currency: poolWallet.assetCode,
   }
 }
 
@@ -278,12 +507,37 @@ export async function createIncomingPayment({
       mode: 'demo',
       paymentUrl: id,
       incomingPaymentId: id,
+      currency,
     }
   }
 
   const client = await getClient()
   const poolWalletAddress = normalizeWalletAddress(getRequiredEnv('POOL_WALLET_ADDRESS'))
   const wallet = await client.walletAddress.get({ url: poolWalletAddress })
+  let shouldRetryInteractive = false
+
+  try {
+    const nonInteractiveGrant = await client.grant.request(
+      { url: wallet.authServer },
+      {
+        access_token: {
+          access: [{ type: 'incoming-payment', actions: ['create', 'read'] }],
+        },
+      }
+    )
+
+    if (hasAccessToken(nonInteractiveGrant)) {
+      return createIncomingFromAccessToken(nonInteractiveGrant.access_token.value, amount, currency, contributionId)
+    }
+
+    shouldRetryInteractive = true
+  } catch {
+    shouldRetryInteractive = true
+  }
+
+  if (!shouldRetryInteractive) {
+    throw new Error('Incoming payment grant did not return access token for non-interactive flow')
+  }
 
   const finishNonce = crypto.randomUUID()
   const grant = await client.grant.request(
@@ -307,7 +561,7 @@ export async function createIncomingPayment({
     return createIncomingFromAccessToken(grant.access_token.value, amount, currency, contributionId)
   }
 
-  if (!hasInteraction(grant)) {
+if (!hasInteraction(grant)) {
     throw new Error('Incoming payment grant did not return usable continuation data')
   }
 
@@ -318,6 +572,7 @@ export async function createIncomingPayment({
     continueUri: grant.continue.uri,
     continueAccessToken: grant.continue.access_token.value,
     finishNonce,
+    currency: wallet.assetCode,
   }
 }
 
@@ -327,7 +582,7 @@ export async function continueIncomingPayment({
   currency,
   continueGrant,
   interactRef,
-}: ContinuedIncomingPaymentOptions): Promise<{ mode: 'live'; paymentUrl: string; incomingPaymentId: string }> {
+}: ContinuedIncomingPaymentOptions): Promise<{ mode: 'live'; paymentUrl: string; incomingPaymentId: string; currency: string }> {
   const client = await getClient()
 
   const continuation = await client.grant.continue(
@@ -340,6 +595,126 @@ export async function continueIncomingPayment({
   }
 
   return createIncomingFromAccessToken(continuation.access_token.value, amount, currency, contributionId)
+}
+
+export async function createOneTimeContributionAuthorization({
+  contributionId,
+  memberWalletAddress,
+  incomingPaymentId,
+  amount,
+  currency,
+  callbackUrl: explicitCallback,
+}: CreateOneTimeContributionAuthorizationOptions): Promise<CreateOneTimeContributionAuthorizationResult> {
+  if (shouldRunDemoMode()) {
+    return {
+      mode: 'demo',
+      outgoingPaymentId: `demo-outgoing-${contributionId}`,
+      needsInteraction: false,
+      currency,
+    }
+  }
+
+  const client = await getClient()
+  const memberWallet = normalizeWalletAddress(memberWalletAddress)
+  const wallet = await client.walletAddress.get({ url: memberWallet })
+  const poolWalletAddress = normalizeWalletAddress(getRequiredEnv('POOL_WALLET_ADDRESS'))
+  const quoteGrant = await client.grant.request(
+    { url: wallet.authServer },
+    {
+      access_token: {
+        access: [{ type: 'quote', actions: ['create', 'read'] }],
+      },
+    }
+  )
+
+  if (!hasAccessToken(quoteGrant)) {
+    throw new Error('Quote grant did not return access token for one-time payment flow')
+  }
+
+  const quote = await client.quote.create(
+    { url: wallet.resourceServer, accessToken: quoteGrant.access_token.value },
+    {
+      walletAddress: wallet.id,
+      receiver: incomingPaymentId,
+      method: 'ilp',
+    }
+  )
+
+  const finishNonce = crypto.randomUUID()
+
+const grant = await client.grant.request(
+    { url: wallet.authServer },
+    {
+      access_token: {
+        access: [{
+          type: 'outgoing-payment',
+          actions: ['read', 'create', 'list'],
+          identifier: wallet.id,
+          limits: {
+            debitAmount: {
+              value: quote.debitAmount.value,
+              assetCode: quote.debitAmount.assetCode,
+              assetScale: quote.debitAmount.assetScale,
+            },
+          },
+        }],
+      },
+      interact: {
+        start: ['redirect'],
+        finish: {
+          method: 'redirect',
+          uri: callbackUrl('incoming', contributionId, explicitCallback),
+          nonce: finishNonce,
+        },
+      },
+    }
+  )
+
+  if (hasAccessToken(grant)) {
+    const outgoing = await createOneTimeOutgoingFromAccessToken(memberWallet, quote.id, grant.access_token.value)
+    return {
+      mode: 'live',
+      outgoingPaymentId: outgoing.outgoingPaymentId,
+      needsInteraction: false,
+      currency: wallet.assetCode,
+    }
+  }
+
+if (!hasInteraction(grant)) {
+    throw new Error('One-time contribution grant did not return usable continuation data')
+  }
+
+  return {
+    mode: 'interaction_required',
+    needsInteraction: true,
+    paymentUrl: grant.interact.redirect,
+    redirectUrl: grant.interact.redirect,
+    continueUri: grant.continue.uri,
+    continueAccessToken: grant.continue.access_token.value,
+    finishNonce,
+    quoteId: quote.id,
+    currency: wallet.assetCode,
+  }
+}
+
+export async function continueOneTimeContributionAuthorization({
+  memberWalletAddress,
+  quoteId,
+  continueGrant,
+  interactRef,
+}: ContinueOneTimeContributionAuthorizationOptions): Promise<{ outgoingPaymentId: string }> {
+  const client = await getClient()
+  const continuation = await client.grant.continue(
+    { url: continueGrant.continueUri, accessToken: continueGrant.continueAccessToken },
+    { interact_ref: interactRef }
+  )
+
+  if (!hasAccessToken(continuation)) {
+    throw new Error('One-time contribution continuation did not return access token')
+  }
+
+  const memberWallet = normalizeWalletAddress(memberWalletAddress)
+  return createOneTimeOutgoingFromAccessToken(memberWallet, quoteId, continuation.access_token.value)
 }
 
 export async function getIncomingPaymentStatus(paymentId: string): Promise<IncomingPaymentStatus> {
@@ -377,12 +752,12 @@ export async function pollIncomingPaymentCompletion({
   for (let i = 0; i < attempts; i += 1) {
     const status = await getIncomingPaymentStatus(paymentId)
     if (status.state === 'completed' && status.receivedAmount >= expectedAmount) {
-      await insertRows('payment_status_cache', [{
-        payment_id: paymentId,
-        payment_type: 'incoming',
+      await upsertPaymentStatusCache({
+        paymentId,
+        paymentType: 'incoming',
         state: 'completed',
-        received_amount: status.receivedAmount,
-      }])
+        receivedAmount: status.receivedAmount,
+      })
       return status
     }
 
@@ -391,12 +766,12 @@ export async function pollIncomingPaymentCompletion({
     }
   }
 
-  await insertRows('payment_status_cache', [{
-    payment_id: paymentId,
-    payment_type: 'incoming',
+  await upsertPaymentStatusCache({
+    paymentId,
+    paymentType: 'incoming',
     state: 'pending',
-    received_amount: 0,
-  }])
+    receivedAmount: 0,
+  })
 
   return {
     paymentId,
@@ -411,7 +786,7 @@ async function createOutgoingFromAccessToken(
   recipientWalletAddress: string,
   accessToken: string,
   amount: number,
-  currency: string,
+  _currency: string,
   metadata?: Record<string, string>
 ): Promise<{ status: 'completed' | 'processing' | 'failed'; outgoingPaymentId: string; needsInteraction: false }> {
   const client = await getClient()
@@ -425,9 +800,9 @@ async function createOutgoingFromAccessToken(
       receiver: recipientWallet.id,
       method: 'ilp',
       debitAmount: {
-        value: toMinorUnits(amount),
-        assetCode: currency,
-        assetScale: 2,
+        value: toMinorUnits(amount, senderWallet.assetScale),
+        assetCode: senderWallet.assetCode,
+        assetScale: senderWallet.assetScale,
       },
     }
   )
@@ -480,9 +855,9 @@ export async function createOutgoingPayment({
           identifier: poolWallet.id,
           limits: {
             debitAmount: {
-              value: toMinorUnits(amount),
-              assetCode: currency,
-              assetScale: 2,
+              value: toMinorUnits(amount, poolWallet.assetScale),
+              assetCode: poolWallet.assetCode,
+              assetScale: poolWallet.assetScale,
             },
           },
         }],
@@ -509,7 +884,7 @@ export async function createOutgoingPayment({
     )
   }
 
-  if (!hasInteraction(grant)) {
+if (!hasInteraction(grant)) {
     throw new Error('Outgoing payment grant did not return usable continuation data')
   }
 
@@ -587,12 +962,12 @@ export async function pollOutgoingPaymentCompletion({
   for (let i = 0; i < attempts; i += 1) {
     const status = await getOutgoingPaymentStatus(paymentId)
     if (status.state === 'completed' || status.state === 'failed') {
-      await insertRows('payment_status_cache', [{
-        payment_id: paymentId,
-        payment_type: 'outgoing',
+      await upsertPaymentStatusCache({
+        paymentId,
+        paymentType: 'outgoing',
         state: status.state,
-        received_amount: status.debitAmount,
-      }])
+        receivedAmount: status.debitAmount,
+      })
       return status
     }
 
@@ -601,12 +976,12 @@ export async function pollOutgoingPaymentCompletion({
     }
   }
 
-  await insertRows('payment_status_cache', [{
-    payment_id: paymentId,
-    payment_type: 'outgoing',
+  await upsertPaymentStatusCache({
+    paymentId,
+    paymentType: 'outgoing',
     state: 'pending',
-    received_amount: 0,
-  }])
+    receivedAmount: 0,
+  })
 
   return { paymentId, state: 'pending', debitAmount: 0 }
 }
@@ -631,10 +1006,12 @@ export async function createRecurringContributionGrant({
   const client = await getClient()
   const memberWallet = normalizeWalletAddress(memberWalletAddress)
   const wallet = await client.walletAddress.get({ url: memberWallet })
+  const poolWalletAddress = normalizeWalletAddress(getRequiredEnv('POOL_WALLET_ADDRESS'))
+  const poolWallet = await client.walletAddress.get({ url: poolWalletAddress })
 
   const finishNonce = crypto.randomUUID()
 
-  const grant = await client.grant.request(
+const grant = await client.grant.request(
     { url: wallet.authServer },
     {
       access_token: {
@@ -644,9 +1021,9 @@ export async function createRecurringContributionGrant({
           identifier: wallet.id,
           limits: {
             debitAmount: {
-              value: toMinorUnits(amount),
-              assetCode: currency,
-              assetScale: 2,
+              value: toMinorUnits(amount, wallet.assetScale),
+              assetCode: wallet.assetCode,
+              assetScale: wallet.assetScale,
             },
             interval,
           },
@@ -672,7 +1049,7 @@ export async function createRecurringContributionGrant({
     }
   }
 
-  if (!hasInteraction(grant)) {
+if (!hasInteraction(grant)) {
     throw new Error('Recurring grant did not return usable continuation data')
   }
 
@@ -682,6 +1059,7 @@ export async function createRecurringContributionGrant({
     continueUri: grant.continue.uri,
     continueAccessToken: grant.continue.access_token.value,
     finishNonce,
+    finishKey: grant.interact.finish,
   }
 }
 
@@ -717,7 +1095,7 @@ export async function continueRecurringContributionGrant({
 export async function processRecurringContribution({
   memberWalletAddress,
   amount,
-  currency,
+  currency: _currency,
   accessToken,
   metadata,
 }: ProcessRecurringContributionOptions): Promise<{ status: 'completed' | 'processing' | 'failed'; outgoingPaymentId: string; needsInteraction: false }> {
@@ -731,12 +1109,11 @@ export async function processRecurringContribution({
 
   const poolWalletAddress = normalizeWalletAddress(getRequiredEnv('POOL_WALLET_ADDRESS'))
 
-  return createOutgoingFromAccessToken(
+  return createRecurringContributionOutgoingFromAccessToken(
     normalizeWalletAddress(memberWalletAddress),
     poolWalletAddress,
     accessToken,
     amount,
-    currency,
     metadata
   )
 }

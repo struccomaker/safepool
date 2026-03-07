@@ -1,4 +1,6 @@
 # SafePool
+![A4b832f61a6344cf4bfc98a2bb40984298](https://github.com/user-attachments/assets/b9c479c6-fdd7-49d2-b603-9f2e5988d0bc)
+
 
 **Community-Powered Emergency Funds** | HACKOMANIA 2026
 
@@ -149,6 +151,7 @@ safepool/
 7. View Analytics — real-time ClickHouse materialized views
 
 ---
+![A4b832f61a6344cf4bfc98a2bb40984298](https://github.com/user-attachments/assets/ba719356-2112-4e18-88b3-0a0d196a856c)
 
 ## License
 

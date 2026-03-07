@@ -13,11 +13,17 @@ const FIRST_NAMES = ['Maria', 'Jose', 'Ana', 'Luis', 'Carmen', 'Miguel', 'Aisha'
 const LAST_NAMES = ['Santos', 'Reyes', 'Dela Cruz', 'Garcia', 'Lopez', 'Khan', 'Patel', 'Fernandez', 'Tan', 'Mendoza']
 
 interface DonationItem {
-  id: number
+  id: string
   member: string
   amount: number
   receivedAt: number
   recurring: boolean
+}
+
+interface HistoryContributionItem {
+  id: string
+  amount: number
+  contributed_at: string
 }
 
 interface DonationCreatedEventDetail {
@@ -27,7 +33,7 @@ interface DonationCreatedEventDetail {
   anonymous: boolean
 }
 
-function buildDonation(sequence: number, id: number): DonationItem {
+function buildDonation(sequence: number, id: string): DonationItem {
   const firstName = FIRST_NAMES[sequence % FIRST_NAMES.length]
   const lastName = LAST_NAMES[(sequence * 3) % LAST_NAMES.length]
   const amount = (((sequence * 7) % 50) + 1) * 10
@@ -49,9 +55,13 @@ export default function RightConfigSidebar() {
   const sequenceRef = useRef(MAX_DONATIONS)
   const nextIdRef = useRef(MAX_DONATIONS + 1)
   const timeoutRef = useRef<number | null>(null)
+  const seenIdsRef = useRef(new Set<string>())
   const [tick, setTick] = useState(MAX_DONATIONS)
   const [donations, setDonations] = useState<DonationItem[]>(() => {
-    const seed = Array.from({ length: MAX_DONATIONS }, (_, index) => buildDonation(index + 1, index + 1)).reverse()
+    const seed = Array.from({ length: MAX_DONATIONS }, (_, index) => buildDonation(index + 1, String(index + 1))).reverse()
+    for (const donation of seed) {
+      seenIdsRef.current.add(donation.id)
+    }
     return seed
   })
   const [poolBalance, setPoolBalance] = useState(() => donations.reduce((sum, donation) => sum + donation.amount, 0))
@@ -65,8 +75,10 @@ export default function RightConfigSidebar() {
         if (cancelled) return
 
         sequenceRef.current += 1
-        const nextDonation = buildDonation(sequenceRef.current, nextIdRef.current)
+        const nextDonation = buildDonation(sequenceRef.current, String(nextIdRef.current))
         nextIdRef.current += 1
+
+        seenIdsRef.current.add(nextDonation.id)
 
         setTick(sequenceRef.current)
         setDonations((currentDonations) => [nextDonation, ...currentDonations].slice(0, MAX_DONATIONS))
@@ -83,6 +95,55 @@ export default function RightConfigSidebar() {
       if (timeoutRef.current) {
         window.clearTimeout(timeoutRef.current)
       }
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const seedFromHistory = async () => {
+      try {
+        const res = await fetch('/api/global/payments/history', { cache: 'no-store' })
+        if (!res.ok) return
+
+        const rows = (await res.json()) as HistoryContributionItem[]
+        if (cancelled || rows.length === 0) return
+
+        const mapped: DonationItem[] = rows.map((row) => ({
+          id: row.id,
+          member: 'Wallet contribution',
+          amount: Number(row.amount),
+          receivedAt: new Date(row.contributed_at).getTime(),
+          recurring: false,
+        }))
+
+        setDonations((current) => {
+          const merged: DonationItem[] = []
+          const localSeen = new Set<string>()
+
+          for (const item of [...mapped, ...current]) {
+            if (localSeen.has(item.id)) continue
+            localSeen.add(item.id)
+            seenIdsRef.current.add(item.id)
+            merged.push(item)
+          }
+
+          return merged.slice(0, MAX_DONATIONS)
+        })
+
+        setPoolBalance((currentBalance) => {
+          const historyTotal = mapped.reduce((sum, item) => sum + item.amount, 0)
+          return Math.max(currentBalance, historyTotal)
+        })
+      } catch (err) {
+        console.error('Failed to seed donation sidebar from backend history', err)
+      }
+    }
+
+    void seedFromHistory()
+
+    return () => {
+      cancelled = true
     }
   }, [])
 
@@ -107,7 +168,7 @@ export default function RightConfigSidebar() {
           : trimmedWalletId
 
       const donation: DonationItem = {
-        id: nextIdRef.current,
+        id: `event-${nextIdRef.current}`,
         member: detail.anonymous ? '' : `Wallet ${walletLabel}`,
         amount,
         receivedAt: Date.now(),
@@ -115,6 +176,10 @@ export default function RightConfigSidebar() {
       }
 
       nextIdRef.current += 1
+      if (seenIdsRef.current.has(donation.id)) {
+        return
+      }
+      seenIdsRef.current.add(donation.id)
       setTick((current) => current + 1)
       setDonations((currentDonations) => [donation, ...currentDonations].slice(0, MAX_DONATIONS))
       setPoolBalance((currentBalance) => currentBalance + amount)

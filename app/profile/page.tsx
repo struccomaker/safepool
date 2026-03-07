@@ -1,52 +1,67 @@
 // Server Component — user wallet + contribution history
-import { queryRows } from '@/lib/clickhouse'
+import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import type { Contribution, UserWallet } from '@/types'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
+import WalletSetupForm from '@/components/WalletSetupForm'
 
-async function getHistory(): Promise<Contribution[]> {
+async function getUserContributions(userId: string): Promise<Contribution[]> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
-    const res = await fetch(`${baseUrl}/api/payments/history/all`, { cache: 'no-store' })
-    if (!res.ok) throw new Error('Failed')
-    return (await res.json()) as Contribution[]
+    const admin = createSupabaseAdminClient()
+    const { data: members, error: membersError } = await admin
+      .from('members')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .eq('is_active', true)
+
+    if (membersError) {
+      return []
+    }
+
+    const memberIds = members.map((member) => member.id)
+    if (memberIds.length === 0) {
+      return []
+    }
+
+    const { data: rows, error } = await admin
+      .from('contributions')
+      .select('id,pool_id,member_id,amount,currency,incoming_payment_id,contributed_at,status')
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .in('member_id', memberIds)
+      .order('contributed_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      return []
+    }
+
+    return rows as Contribution[]
   } catch {
     return []
   }
 }
 
-async function getWallet(userId?: string): Promise<UserWallet | null> {
-  if (!userId) return null
-
+async function getWallet(userId: string): Promise<UserWallet | null> {
   try {
-    const rows = await queryRows<{
-      id: string
-      user_id: string
-      wallet_address: string
-      provider: string
-      status: string
-      is_default: number
-      created_at: string
-    }>(
-      `
-      SELECT
-        toString(id) AS id,
-        toString(user_id) AS user_id,
-        wallet_address,
-        provider,
-        toString(status) AS status,
-        is_default,
-        toString(created_at) AS created_at
-      FROM user_wallets
-      WHERE user_id = toUUID({user_id:String})
-        AND is_default = 1
-      ORDER BY created_at DESC
-      LIMIT 1
-      `,
-      { user_id: userId }
-    )
+    const admin = createSupabaseAdminClient()
+    const { data: rows, error } = await admin
+      .from('user_wallets')
+      .select('id,user_id,wallet_address,provider,status,is_default,created_at')
+      .eq('user_id', userId)
+      .eq('is_default', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      return null
+    }
 
     if (rows.length === 0) return null
-    return rows[0] as UserWallet
+    return {
+      ...(rows[0] as UserWallet),
+      is_default: 1,
+    }
   } catch {
     return null
   }
@@ -54,17 +69,26 @@ async function getWallet(userId?: string): Promise<UserWallet | null> {
 
 export default async function ProfilePage() {
   const supabase = await createSupabaseServerClient()
-  const authPromise = supabase.auth.getUser()
-  const historyPromise = getHistory()
-  const { data: authData } = await authPromise
-  const walletPromise = getWallet(authData.user?.id)
-  const history: Contribution[] = await historyPromise
-  const wallet = await walletPromise
+  const { data: authData } = await supabase.auth.getUser()
   const user = authData.user
 
-  const displayName = typeof user?.user_metadata?.full_name === 'string'
+  if (!user) {
+    return (
+      <div className="max-w-3xl mx-auto px-6 py-12">
+        <h1 className="text-3xl font-bold mb-4">Profile</h1>
+        <p className="text-white/50">You must be signed in to view your profile.</p>
+      </div>
+    )
+  }
+
+  const [wallet, history] = await Promise.all([
+    getWallet(user.id),
+    getUserContributions(user.id),
+  ])
+
+  const displayName = typeof user.user_metadata?.full_name === 'string'
     ? user.user_metadata.full_name
-    : user?.email?.split('@')[0]
+    : user.email?.split('@')[0]
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-12">
@@ -79,18 +103,15 @@ export default async function ProfilePage() {
           </div>
           <div className="flex justify-between">
             <span className="text-white/40">Email</span>
-            <span>{user?.email ?? '—'}</span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="text-white/40">Wallet</span>
-            <span className="font-mono text-right text-xs break-all">{wallet?.wallet_address ?? 'Not provisioned yet'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-white/40">Wallet status</span>
-            <span className="capitalize">{wallet?.status ?? 'manual_required'}</span>
+            <span>{user.email ?? '—'}</span>
           </div>
         </div>
       </div>
+
+      <WalletSetupForm
+        currentWalletAddress={wallet?.wallet_address ?? null}
+        walletStatus={wallet?.status ?? null}
+      />
 
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
         <h2 className="font-semibold mb-4">Contribution History</h2>

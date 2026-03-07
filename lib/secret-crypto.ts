@@ -1,22 +1,36 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto'
 
 const ENC_PREFIX = 'enc:v1:'
+let warnedAboutDerivedKey = false
 
 function shouldRunDemoMode(): boolean {
-  return process.env.DEMO_MODE === 'true'
+  const raw = process.env.DEMO_MODE?.trim().toLowerCase()
+  return raw === 'true' || raw === '1' || raw === 'yes'
 }
 
 function getKeyBuffer(): Buffer {
   const key = process.env.APP_ENCRYPTION_KEY
 
-  if (!key) {
-    if (shouldRunDemoMode()) {
-      return createHash('sha256').update('safepool-demo-encryption-key').digest()
-    }
-    throw new Error('Missing required environment variable: APP_ENCRYPTION_KEY')
+  if (key) {
+    return createHash('sha256').update(key).digest()
   }
 
-  return createHash('sha256').update(key).digest()
+  const fallbackSeed = process.env.OPEN_PAYMENTS_PRIVATE_KEY ?? process.env.OPEN_PAYMENTS_KEY_ID
+
+  if (fallbackSeed) {
+    if (!warnedAboutDerivedKey) {
+      console.warn('APP_ENCRYPTION_KEY is missing; deriving encryption key from Open Payments env for local compatibility.')
+      warnedAboutDerivedKey = true
+    }
+
+    return createHash('sha256').update(fallbackSeed).digest()
+  }
+
+  if (shouldRunDemoMode()) {
+    return createHash('sha256').update('safepool-demo-encryption-key').digest()
+  }
+
+  throw new Error('Missing required environment variable: APP_ENCRYPTION_KEY')
 }
 
 export function encryptSecret(value: string): string {

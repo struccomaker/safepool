@@ -10,7 +10,7 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 |-------|------------|
 | Framework | Next.js 16.1.6 (App Router), React 18, TypeScript |
 | Styling/UI | Tailwind CSS, shadcn/ui components |
-| Database/Analytics | ClickHouse Cloud via `@clickhouse/client` |
+| Database/Analytics | Supabase Postgres (transactional) + ClickHouse Cloud (disasters/analytics) |
 | Payments | Interledger Open Payments via `@interledger/open-payments` |
 | Auth | Supabase Auth (`@supabase/ssr`, `@supabase/supabase-js`) with Google OAuth |
 | Maps/Geo | MapLibre GL + Leaflet + Turf |
@@ -26,7 +26,7 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 - **Consistent API error handling:** Most route handlers wrap logic in `try/catch` and return JSON status codes.
 - **Dynamic routes for live endpoints:** `export const dynamic = 'force-dynamic'` is used in SSE and cron routes.
 - **No-cache live fetches:** `cache: 'no-store'` used for real-time data fetches.
-- **ClickHouse helper abstraction:** Shared helpers (`queryRows`, `insertRows`, `runCommand`) centralize query patterns.
+- **Split persistence by workload:** Supabase Postgres is source of truth for transactional flows; ClickHouse is reserved for disaster processing and analytics queries.
 - **Input validation on critical writes:** UUID checks, wallet URL validation in payment/member routes.
 - **Fallback-first integration:** Open Payments routes support demo fallback when grants/config unavailable.
 - **Canonical test wallet addressing:** Use `https://ilp.interledger-test.dev/<walletName>` for `POOL_WALLET_ADDRESS` and member wallet addresses; `https://wallet.interledger-test.dev` is UI-only.
@@ -39,9 +39,11 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 ## Current Features
 
 ### Core
-- **Immersive globe landing/app shell** — Interactive 3D globe with country hover/click and drill-down entry (`components/GlobeScene.tsx`, `components/dashboard/GlobeCenterPanel.tsx`)
+- **Immersive globe landing/app shell** — Interactive 3D globe with country hover/click and drill-down entry (`components/GlobeScene.tsx`, `components/dashboard/GlobeCenterPanel.tsx`, `components/dashboard/CountryDrilldownMap.tsx`)
+- **Godzilla interaction layer (demo UX)** — Right-click spawn on globe surface, click-to-clear, keyboard controls (`W` forward, `A/D` rotate), optional FPS overlay (`~`), and top-nav mini preview state sync (`components/GlobeScene.tsx`, `components/dashboard/TopNavigationMenu.tsx`)
 - **Global emergency fund model** — Single global pool architecture (`lib/global-pool.ts`, `app/api/global/*`)
 - **Contribution and payout backend** — Open Payments contribute/confirm/callback/status + recurring and payout cron flows (`app/api/payments/*`, `app/api/recurring/create/route.ts`, `app/api/cron/*`)
+- **Transactional backend migrated to Supabase** — Users, wallets, members, payment sessions, pending contributions, confirmed contributions, recurring contribution schedules, proposals, votes, and payout status cache run on Supabase tables (`app/api/wallet/me/route.ts`, `app/api/members/join/route.ts`, `app/api/payments/*`, `app/api/recurring/create/route.ts`, `app/api/cron/process-recurring/route.ts`, `app/api/governance/*`)
 - **Payment continuation + status APIs** — Callback continuation and authenticated payment status checks (`app/api/payments/callback/route.ts`, `app/api/payments/status/route.ts`)
 - **Wallet onboarding pipeline** — Canonical user wallet fetch/update endpoint (`app/api/wallet/me/route.ts`)
 - **Recurring contributions** — Recurring grant creation + scheduled processing (`app/api/recurring/create/route.ts`, `app/api/cron/process-recurring/route.ts`)
@@ -93,6 +95,12 @@ The app is now **single-pool + single-map-first**. The only map entry page is th
 - `/api/analytics/disaster-map` — Disaster geospatial analytics
 - `/api/sse/contributions` — Live contribution SSE stream
 - `/api/auth/[...nextauth]` — Deprecated endpoint; returns HTTP 410 with Supabase migration message
+
+### Database Setup Routes
+
+- Transactional schema bootstrap: `scripts/init-supabase.sql`
+- ClickHouse disasters + analytics schema bootstrap: `scripts/init-db.sql`
+- ClickHouse transactional cleanup script: `scripts/trim-clickhouse-transactional.sql`
 
 ---
 

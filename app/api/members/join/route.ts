@@ -2,11 +2,10 @@ export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
-import client from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { getLatestUserWalletBinding, syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
-import { queryRows } from '@/lib/clickhouse'
 import { isValidWalletAddress, verifyWalletAddressRemotely } from '@/lib/wallet-address'
 
 interface JoinRequest {
@@ -27,6 +26,8 @@ export async function POST(req: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const admin = createSupabaseAdminClient()
 
     await syncSupabaseUserToClickHouse(user)
 
@@ -60,31 +61,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 })
     }
 
-    const existingMember = await queryRows<{ id: string }>(
-      `
-      SELECT toString(id) AS id
-      FROM members
-      WHERE pool_id = toUUID({pool_id:String})
-        AND user_id = toUUID({user_id:String})
-        AND is_active = 1
-      ORDER BY joined_at DESC
-      LIMIT 1
-      `,
-      {
-        pool_id: GLOBAL_POOL_ID,
-        user_id: user.id,
-      }
-    )
+    const { data: existingMember, error: existingMemberError } = await admin
+      .from('members')
+      .select('id')
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('joined_at', { ascending: false })
+      .limit(1)
+
+    if (existingMemberError) {
+      return NextResponse.json({ error: `Failed to load member record: ${existingMemberError.message}` }, { status: 500 })
+    }
 
     if (existingMember.length > 0) {
+      const { error: updateMemberError } = await admin
+        .from('members')
+        .update({
+          wallet_address: walletAddress,
+          location_lat: body.location_lat,
+          location_lon: body.location_lon,
+          household_size: body.household_size ?? 1,
+          joined_at: new Date().toISOString(),
+          is_active: true,
+        })
+        .eq('id', existingMember[0].id)
+
+      if (updateMemberError) {
+        return NextResponse.json({ error: `Failed to update member: ${updateMemberError.message}` }, { status: 500 })
+      }
+
       return NextResponse.json({ id: existingMember[0].id }, { status: 200 })
     }
 
     const id = crypto.randomUUID()
 
-    await client.insert({
-      table: 'members',
-      values: [{
+    const { error: insertMemberError } = await admin
+      .from('members')
+      .insert({
         id,
         pool_id: GLOBAL_POOL_ID,
         user_id: user.id,
@@ -92,10 +106,12 @@ export async function POST(req: NextRequest) {
         location_lat: body.location_lat,
         location_lon: body.location_lon,
         household_size: body.household_size ?? 1,
-        is_active: 1,
-      }],
-      format: 'JSONEachRow',
-    })
+        is_active: true,
+      })
+
+    if (insertMemberError) {
+      return NextResponse.json({ error: `Failed to create member: ${insertMemberError.message}` }, { status: 500 })
+    }
 
     return NextResponse.json({ id }, { status: 201 })
   } catch (err: unknown) {

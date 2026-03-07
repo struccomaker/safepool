@@ -2,12 +2,12 @@ export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import {
-  continueIncomingPayment,
+  continueOneTimeContributionAuthorization,
   continueOutgoingPayment,
   continueRecurringContributionGrant,
   pollOutgoingPaymentCompletion,
 } from '@/lib/open-payments'
-import { insertRows, queryRows, runCommand, toClickHouseDateTime } from '@/lib/clickhouse'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { decryptSecret, encryptSecret } from '@/lib/secret-crypto'
 
 type CallbackFlow = 'incoming' | 'outgoing' | 'recurring'
@@ -28,6 +28,9 @@ interface IncomingPayload {
   currency: string
   pool_id: string
   member_id: string
+  member_wallet_address: string
+  incoming_payment_id: string
+  quote_id: string
 }
 
 interface OutgoingPayload {
@@ -46,6 +49,33 @@ interface RecurringPayload {
   amount: number
   currency: string
   interval: string
+}
+
+interface OpenPaymentsErrorLike {
+  message?: string
+  description?: string
+  status?: number
+  code?: string
+}
+
+function formatOpenPaymentsError(err: unknown): string {
+  if (typeof err !== 'object' || err === null) {
+    return 'Internal error'
+  }
+
+  const e = err as OpenPaymentsErrorLike
+  const parts = [
+    e.message,
+    e.description,
+    typeof e.status === 'number' ? `status=${e.status}` : undefined,
+    e.code ? `code=${e.code}` : undefined,
+  ].filter((value): value is string => Boolean(value && value.trim().length > 0))
+
+  if (parts.length === 0) {
+    return 'Internal error'
+  }
+
+  return parts.join(' | ')
 }
 
 function addIntervalDate(from: Date, interval: string): Date {
@@ -76,7 +106,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const flow = url.searchParams.get('flow') as CallbackFlow | null
   const interactRef = url.searchParams.get('interact_ref')
-  const nonce = url.searchParams.get('nonce')
+  const result = url.searchParams.get('result')
 
   const referenceId =
     flow === 'incoming'
@@ -85,32 +115,35 @@ export async function GET(req: Request) {
         ? url.searchParams.get('payout_id')
         : url.searchParams.get('recurring_id')
 
-  if (!flow || !referenceId || !interactRef || !nonce) {
+  if (!flow || !referenceId) {
     return NextResponse.json({ error: 'Missing required callback parameters' }, { status: 400 })
   }
 
+  if (result === 'grant_rejected') {
+    return redirectTo(req, '/', 'grant_rejected', referenceId)
+  }
+
+  if (!interactRef) {
+    return NextResponse.json({ error: 'Missing interact_ref callback parameter' }, { status: 400 })
+  }
+
   try {
-    const sessions = await queryRows<StoredGrantSession>(
-      `
-      SELECT
-        toString(id) AS id,
-        flow,
-        continue_uri,
-        continue_access_token,
-        finish_nonce,
-        payload_json
-      FROM payment_grant_sessions
-      WHERE flow = {flow:String}
-        AND reference_id = toUUID({reference_id:String})
-        AND status = 'pending'
-      ORDER BY updated_at DESC
-      LIMIT 1
-      `,
-      {
-        flow,
-        reference_id: referenceId,
-      }
-    )
+    const admin = createSupabaseAdminClient()
+
+    const { data: pendingSessions, error: pendingSessionError } = await admin
+      .from('payment_grant_sessions')
+      .select('id,flow,continue_uri,continue_access_token,finish_nonce,payload_json,status')
+      .eq('flow', flow)
+      .eq('reference_id', referenceId)
+      .eq('status', 'pending')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+
+    if (pendingSessionError) {
+      return NextResponse.json({ error: `Failed to load payment session: ${pendingSessionError.message}` }, { status: 500 })
+    }
+
+    const sessions = pendingSessions as StoredGrantSession[]
 
     if (sessions.length === 0) {
       return NextResponse.json({ error: 'No pending payment session found' }, { status: 404 })
@@ -118,72 +151,60 @@ export async function GET(req: Request) {
 
     const session = sessions[0]
 
-    if (session.finish_nonce !== nonce) {
-      return NextResponse.json({ error: 'Invalid callback nonce' }, { status: 400 })
-    }
+    const payload = JSON.parse(session.payload_json) as IncomingPayload | OutgoingPayload | RecurringPayload
 
     if (flow === 'incoming') {
-      const payload = JSON.parse(session.payload_json) as IncomingPayload
-      const continued = await continueIncomingPayment({
-        contributionId: referenceId,
-        amount: Number(payload.amount),
-        currency: payload.currency,
+      const incomingPayload = payload as IncomingPayload
+
+      if (!incomingPayload.quote_id) {
+        return NextResponse.json({ error: 'Missing quote_id for one-time payment continuation' }, { status: 400 })
+      }
+
+      const continued = await continueOneTimeContributionAuthorization({
+        memberWalletAddress: incomingPayload.member_wallet_address,
+        quoteId: incomingPayload.quote_id,
         continueGrant: {
           continueUri: session.continue_uri,
           continueAccessToken: decryptSecret(session.continue_access_token),
-          finishNonce: session.finish_nonce,
         },
         interactRef,
       })
 
-      await insertRows('payment_grant_sessions', [{
-        id: session.id,
-        flow,
-        reference_id: referenceId,
-        continue_uri: session.continue_uri,
-        continue_access_token: session.continue_access_token,
-        finish_nonce: session.finish_nonce,
-        payload_json: JSON.stringify({
-          ...payload,
-          incomingPaymentId: continued.incomingPaymentId,
-          paymentUrl: continued.paymentUrl,
-        }),
-        status: 'completed',
-        error_message: '',
-        updated_at: toClickHouseDateTime(new Date()),
-      }])
+      const { error: updateSessionError } = await admin
+        .from('payment_grant_sessions')
+        .update({
+          payload_json: JSON.stringify({
+            ...incomingPayload,
+            outgoingPaymentId: continued.outgoingPaymentId,
+          }),
+          status: 'completed',
+          error_message: '',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', session.id)
 
-      await runCommand(
-        `
-        ALTER TABLE pending_contributions
-        UPDATE incoming_payment_id = {incoming_payment_id:String}
-        WHERE id = toUUID({id:String})
-        `,
-        {
-          incoming_payment_id: continued.incomingPaymentId,
-          id: referenceId,
-        }
-      )
+      if (updateSessionError) {
+        return NextResponse.json({ error: `Failed to persist incoming grant completion: ${updateSessionError.message}` }, { status: 500 })
+      }
 
-      return redirectTo(req, '/profile', 'interaction_completed', referenceId)
+      return redirectTo(req, '/', 'interaction_completed', referenceId)
     }
 
     if (flow === 'outgoing') {
-      const payload = JSON.parse(session.payload_json) as OutgoingPayload
+      const outgoingPayload = payload as OutgoingPayload
       const continued = await continueOutgoingPayment({
-        recipientWalletAddress: payload.recipientWalletAddress,
-        amount: Number(payload.amount),
-        currency: payload.currency,
+        recipientWalletAddress: outgoingPayload.recipientWalletAddress,
+        amount: Number(outgoingPayload.amount),
+        currency: outgoingPayload.currency,
         metadata: {
           payoutId: referenceId,
-          poolId: payload.poolId,
-          disasterId: payload.disasterId,
-          memberId: payload.memberId,
+          poolId: outgoingPayload.poolId,
+          disasterId: outgoingPayload.disasterId,
+          memberId: outgoingPayload.memberId,
         },
         continueGrant: {
           continueUri: session.continue_uri,
           continueAccessToken: decryptSecret(session.continue_access_token),
-          finishNonce: session.finish_nonce,
         },
         interactRef,
       })
@@ -192,108 +213,103 @@ export async function GET(req: Request) {
         ? await pollOutgoingPaymentCompletion({ paymentId: continued.outgoingPaymentId })
         : { paymentId: continued.outgoingPaymentId, state: continued.status, debitAmount: 0 }
 
-      await insertRows('payment_grant_sessions', [{
-        id: session.id,
-        flow,
-        reference_id: referenceId,
-        continue_uri: session.continue_uri,
-        continue_access_token: session.continue_access_token,
-        finish_nonce: session.finish_nonce,
-        payload_json: JSON.stringify({
-          ...payload,
-          outgoingPaymentId: continued.outgoingPaymentId,
-          payoutState: finalStatus.state,
-        }),
-        status: 'completed',
-        error_message: '',
-        updated_at: toClickHouseDateTime(new Date()),
-      }])
+      const { error: updateOutgoingSessionError } = await admin
+        .from('payment_grant_sessions')
+        .update({
+          payload_json: JSON.stringify({
+            ...outgoingPayload,
+            outgoingPaymentId: continued.outgoingPaymentId,
+            payoutState: finalStatus.state,
+          }),
+          status: 'completed',
+          error_message: '',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', session.id)
 
-      await runCommand(
-        `
-        ALTER TABLE payouts
-        UPDATE
-          outgoing_payment_id = {outgoing_payment_id:String},
-          status = {status:String},
-          failure_reason = {failure_reason:String}
-        WHERE id = toUUID({id:String})
-        `,
-        {
+      if (updateOutgoingSessionError) {
+        return NextResponse.json({ error: `Failed to persist outgoing grant completion: ${updateOutgoingSessionError.message}` }, { status: 500 })
+      }
+
+      const { error: payoutUpdateError } = await admin
+        .from('payouts')
+        .update({
           outgoing_payment_id: continued.outgoingPaymentId,
           status: finalStatus.state === 'pending' ? 'processing' : finalStatus.state,
           failure_reason: finalStatus.state === 'failed' ? 'Outgoing payment failed after interaction' : '',
-          id: referenceId,
-        }
-      )
+        })
+        .eq('id', referenceId)
 
-      return redirectTo(req, '/dashboard', finalStatus.state, referenceId)
+      if (payoutUpdateError) {
+        return NextResponse.json({ error: `Failed to update payout record: ${payoutUpdateError.message}` }, { status: 500 })
+      }
+
+      return redirectTo(req, '/', finalStatus.state, referenceId)
     }
 
-    const payload = JSON.parse(session.payload_json) as RecurringPayload
+    const recurringPayload = payload as RecurringPayload
     const finalized = await continueRecurringContributionGrant({
       continueGrant: {
         continueUri: session.continue_uri,
         continueAccessToken: decryptSecret(session.continue_access_token),
-        finishNonce: session.finish_nonce,
       },
       interactRef,
     })
 
-    await insertRows('recurring_contributions', [{
-      id: referenceId,
-      member_id: payload.member_id,
-      pool_id: payload.pool_id,
-      member_wallet_address: payload.member_wallet_address,
-      amount: Number(payload.amount),
-      currency: payload.currency,
-      interval: payload.interval,
-      next_payment_date: toClickHouseDateTime(addIntervalDate(new Date(), payload.interval)),
-      access_token: encryptSecret(finalized.accessToken),
-      manage_uri: encryptSecret(finalized.manageUri),
-      status: 'active',
-      updated_at: toClickHouseDateTime(new Date()),
-    }])
+    const { error: recurringInsertError } = await admin
+      .from('recurring_contributions')
+      .upsert({
+        id: referenceId,
+        member_id: recurringPayload.member_id,
+        pool_id: recurringPayload.pool_id,
+        member_wallet_address: recurringPayload.member_wallet_address,
+        amount: Number(recurringPayload.amount),
+        currency: recurringPayload.currency,
+        interval: recurringPayload.interval,
+        next_payment_date: addIntervalDate(new Date(), recurringPayload.interval).toISOString(),
+        access_token: encryptSecret(finalized.accessToken),
+        manage_uri: encryptSecret(finalized.manageUri),
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' })
 
-    await insertRows('payment_grant_sessions', [{
-      id: session.id,
-      flow,
-      reference_id: referenceId,
-      continue_uri: session.continue_uri,
-      continue_access_token: session.continue_access_token,
-      finish_nonce: session.finish_nonce,
-      payload_json: session.payload_json,
-      status: 'completed',
-      error_message: '',
-      updated_at: toClickHouseDateTime(new Date()),
-    }])
+    if (recurringInsertError) {
+      return NextResponse.json({ error: `Failed to persist recurring contribution setup: ${recurringInsertError.message}` }, { status: 500 })
+    }
 
-    return redirectTo(req, '/profile', 'recurring_active', referenceId)
+    const { error: updateRecurringSessionError } = await admin
+      .from('payment_grant_sessions')
+      .update({
+        status: 'completed',
+        error_message: '',
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', session.id)
+
+    if (updateRecurringSessionError) {
+      return NextResponse.json({ error: `Failed to persist recurring grant completion: ${updateRecurringSessionError.message}` }, { status: 500 })
+    }
+
+    return redirectTo(req, '/', 'recurring_active', referenceId)
   } catch (err: unknown) {
     console.error(err)
+    const admin = createSupabaseAdminClient()
 
     try {
       if (flow && referenceId) {
-        const sessions = await queryRows<StoredGrantSession>(
-          `
-          SELECT
-            toString(id) AS id,
-            flow,
-            continue_uri,
-            continue_access_token,
-            finish_nonce,
-            payload_json,
-            status
-          FROM payment_grant_sessions
-          WHERE flow = {flow:String}
-            AND reference_id = toUUID({reference_id:String})
-          ORDER BY updated_at DESC
-          LIMIT 1
-          `,
-          {
-            flow,
-            reference_id: referenceId,
-          }
-        )
+        const { data: sessionsData, error: sessionsError } = await admin
+          .from('payment_grant_sessions')
+          .select('id,flow,continue_uri,continue_access_token,finish_nonce,payload_json,status')
+          .eq('flow', flow)
+          .eq('reference_id', referenceId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+
+        if (sessionsError) {
+          throw new Error(`Failed to load payment session for error persistence: ${sessionsError.message}`)
+        }
+
+        const sessions = sessionsData as StoredGrantSession[]
 
         if (sessions.length > 0) {
           const session = sessions[0]
@@ -303,25 +319,25 @@ export async function GET(req: Request) {
           }
 
           const message = err instanceof Error ? err.message : 'Callback continuation failed'
-          await insertRows('payment_grant_sessions', [{
-            id: session.id,
-            flow: session.flow,
-            reference_id: referenceId,
-            continue_uri: session.continue_uri,
-            continue_access_token: session.continue_access_token,
-            finish_nonce: session.finish_nonce,
-            payload_json: session.payload_json,
-            status: 'failed',
-            error_message: message,
-            updated_at: toClickHouseDateTime(new Date()),
-          }])
+          const { error: markFailedError } = await admin
+            .from('payment_grant_sessions')
+            .update({
+              status: 'failed',
+              error_message: message,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', session.id)
+
+          if (markFailedError) {
+            throw new Error(`Failed to persist callback failure state: ${markFailedError.message}`)
+          }
         }
       }
     } catch (nestedErr) {
       console.error('Failed to persist callback failure state', nestedErr)
     }
 
-    const message = err instanceof Error ? err.message : 'Internal error'
+    const message = formatOpenPaymentsError(err)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

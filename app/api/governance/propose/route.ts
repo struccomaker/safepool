@@ -2,10 +2,10 @@ export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
-import client from '@/lib/clickhouse'
 import type { ProposeRequest } from '@/types'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
 export async function POST(req: NextRequest) {
@@ -21,6 +21,7 @@ export async function POST(req: NextRequest) {
     }
 
     await syncSupabaseUserToClickHouse(user)
+    const admin = createSupabaseAdminClient()
 
     const body = await req.json() as ProposeRequest
 
@@ -31,9 +32,9 @@ export async function POST(req: NextRequest) {
       .replace('T', ' ')
       .replace('Z', '')
 
-    await client.insert({
-      table: 'proposals',
-      values: [{
+    const { error: insertProposalError } = await admin
+      .from('proposals')
+      .insert({
         id,
         pool_id: GLOBAL_POOL_ID,
         proposed_by: user.id,
@@ -41,11 +42,13 @@ export async function POST(req: NextRequest) {
         description: body.description,
         change_type: body.change_type,
         new_value: body.new_value,
-        voting_ends_at: votingEndsAt,
+        voting_ends_at: new Date(votingEndsAt).toISOString(),
         status: 'open',
-      }],
-      format: 'JSONEachRow',
-    })
+      })
+
+    if (insertProposalError) {
+      return NextResponse.json({ error: `Failed to create proposal: ${insertProposalError.message}` }, { status: 500 })
+    }
 
     return NextResponse.json({ id }, { status: 201 })
   } catch (err: unknown) {

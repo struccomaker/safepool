@@ -1,6 +1,7 @@
 import client, { insertRows } from '@/lib/clickhouse'
 import { createOutgoingPayment, pollOutgoingPaymentCompletion } from '@/lib/open-payments'
 import { encryptSecret } from '@/lib/secret-crypto'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import type { Pool, Member, DisasterEvent } from '@/types'
 
 const SEVERITY_MULTIPLIER: Record<string, number> = {
@@ -65,9 +66,11 @@ export async function processPayouts({
   affectedMembers,
   totalFunds,
 }: ProcessPayoutsOptions): Promise<number> {
+  const admin = createSupabaseAdminClient()
   const perMemberPayouts = calculatePerMemberPayouts(pool, disaster, affectedMembers, totalFunds)
 
-  const payoutRows = []
+  const payoutRows: Array<Record<string, unknown>> = []
+  const payoutRowsPg: Array<Record<string, unknown>> = []
   let successCount = 0
 
   for (const member of affectedMembers) {
@@ -90,7 +93,9 @@ export async function processPayouts({
       })
 
       if (result.needsInteraction) {
-        await insertRows('payment_grant_sessions', [{
+        const { error: grantInsertError } = await admin
+          .from('payment_grant_sessions')
+          .insert({
           id: crypto.randomUUID(),
           flow: 'outgoing',
           reference_id: payoutId,
@@ -106,11 +111,15 @@ export async function processPayouts({
             memberId: member.id,
             redirectUrl: result.redirectUrl,
           }),
-          status: 'failed',
+          status: 'pending',
           error_message: 'Interaction-required outgoing payout is not supported in unattended disaster cron flow',
-        }])
+        })
 
-        payoutRows.push({
+        if (grantInsertError) {
+          throw new Error(`Failed to persist outgoing grant session: ${grantInsertError.message}`)
+        }
+
+        const failedPayout = {
           id: payoutId,
           pool_id: pool.id,
           disaster_event_id: disaster.id,
@@ -121,7 +130,9 @@ export async function processPayouts({
           distribution_rule: pool.distribution_model,
           status: 'failed',
           failure_reason: 'Payout requires wallet authorization interaction; use DEMO_MODE or pre-authorized grants',
-        })
+        }
+        payoutRows.push(failedPayout)
+        payoutRowsPg.push(failedPayout)
         continue
       }
 
@@ -137,7 +148,7 @@ export async function processPayouts({
         failureReason = 'Outgoing payment failed'
       }
 
-      payoutRows.push({
+      const payoutRow = {
         id: payoutId,
         pool_id: pool.id,
         disaster_event_id: disaster.id,
@@ -148,14 +159,17 @@ export async function processPayouts({
         distribution_rule: pool.distribution_model,
         status: finalStatus,
         failure_reason: failureReason,
-      })
+      }
+
+      payoutRows.push(payoutRow)
+      payoutRowsPg.push(payoutRow)
 
       if (finalStatus === 'completed') {
         successCount++
       }
     } catch (err: unknown) {
       const reason = err instanceof Error ? err.message : 'Unknown error'
-      payoutRows.push({
+      const failedPayout = {
         id: payoutId,
         pool_id: pool.id,
         disaster_event_id: disaster.id,
@@ -166,7 +180,19 @@ export async function processPayouts({
         distribution_rule: pool.distribution_model,
         status: 'failed',
         failure_reason: reason,
-      })
+      }
+      payoutRows.push(failedPayout)
+      payoutRowsPg.push(failedPayout)
+    }
+  }
+
+  if (payoutRowsPg.length > 0) {
+    const { error: supabasePayoutError } = await admin
+      .from('payouts')
+      .upsert(payoutRowsPg, { onConflict: 'id' })
+
+    if (supabasePayoutError) {
+      throw new Error(`Failed to persist payout rows in Supabase: ${supabasePayoutError.message}`)
     }
   }
 

@@ -2,9 +2,9 @@ export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import { createRecurringContributionGrant } from '@/lib/open-payments'
-import { insertRows, queryRows, toClickHouseDateTime } from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 import { isValidWalletAddress } from '@/lib/wallet-address'
 import { encryptSecret } from '@/lib/secret-crypto'
@@ -13,6 +13,33 @@ interface CreateRecurringBody {
   amount?: number
   currency?: string
   interval?: 'P1D' | 'P1W' | 'P1M'
+}
+
+interface OpenPaymentsErrorLike {
+  message?: string
+  description?: string
+  status?: number
+  code?: string
+}
+
+function formatOpenPaymentsError(err: unknown): string {
+  if (typeof err !== 'object' || err === null) {
+    return 'Internal error'
+  }
+
+  const e = err as OpenPaymentsErrorLike
+  const parts = [
+    e.message,
+    e.description,
+    typeof e.status === 'number' ? `status=${e.status}` : undefined,
+    e.code ? `code=${e.code}` : undefined,
+  ].filter((value): value is string => Boolean(value && value.trim().length > 0))
+
+  if (parts.length === 0) {
+    return 'Internal error'
+  }
+
+  return parts.join(' | ')
 }
 
 function addIntervalDate(from: Date, interval: 'P1D' | 'P1W' | 'P1M'): Date {
@@ -42,6 +69,7 @@ export async function POST(req: Request) {
     }
 
     await syncSupabaseUserToClickHouse(user)
+    const admin = createSupabaseAdminClient()
 
     const body = (await req.json()) as CreateRecurringBody
     const amount = Number(body.amount)
@@ -56,21 +84,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'interval must be one of P1D, P1W, P1M' }, { status: 400 })
     }
 
-    const members = await queryRows<{ id: string; wallet_address: string }>(
-      `
-      SELECT toString(id) AS id, wallet_address
-      FROM members
-      WHERE pool_id = toUUID({pool_id:String})
-        AND user_id = toUUID({user_id:String})
-        AND is_active = 1
-      ORDER BY joined_at DESC
-      LIMIT 1
-      `,
-      {
-        pool_id: GLOBAL_POOL_ID,
-        user_id: user.id,
-      }
-    )
+    const { data: members, error: membersError } = await admin
+      .from('members')
+      .select('id,wallet_address')
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('joined_at', { ascending: false })
+      .limit(1)
+
+    if (membersError) {
+      return NextResponse.json({ error: `Failed to load member profile: ${membersError.message}` }, { status: 500 })
+    }
 
     if (members.length === 0) {
       return NextResponse.json({ error: 'Join SafePool first before creating recurring contributions' }, { status: 400 })
@@ -92,23 +117,29 @@ export async function POST(req: Request) {
     })
 
     if (grant.mode === 'interaction_required') {
-      await insertRows('payment_grant_sessions', [{
-        id: crypto.randomUUID(),
-        flow: 'recurring',
-        reference_id: recurringId,
-        continue_uri: grant.continueUri,
-        continue_access_token: encryptSecret(grant.continueAccessToken),
-        finish_nonce: grant.finishNonce,
-        payload_json: JSON.stringify({
-          member_id: members[0].id,
-          pool_id: GLOBAL_POOL_ID,
-          member_wallet_address: memberWalletAddress,
-          amount,
-          currency,
-          interval,
-        }),
-        status: 'pending',
-      }])
+      const { error: grantInsertError } = await admin
+        .from('payment_grant_sessions')
+        .insert({
+          id: crypto.randomUUID(),
+          flow: 'recurring',
+          reference_id: recurringId,
+          continue_uri: grant.continueUri,
+          continue_access_token: encryptSecret(grant.continueAccessToken),
+          finish_nonce: grant.finishNonce,
+          payload_json: JSON.stringify({
+            member_id: members[0].id,
+            pool_id: GLOBAL_POOL_ID,
+            member_wallet_address: memberWalletAddress,
+            amount,
+            currency,
+            interval,
+          }),
+          status: 'pending',
+        })
+
+      if (grantInsertError) {
+        return NextResponse.json({ error: `Failed to persist recurring grant session: ${grantInsertError.message}` }, { status: 500 })
+      }
 
       return NextResponse.json({
         recurring_id: recurringId,
@@ -117,20 +148,26 @@ export async function POST(req: Request) {
       }, { status: 201 })
     }
 
-    await insertRows('recurring_contributions', [{
-      id: recurringId,
-      member_id: members[0].id,
-      pool_id: GLOBAL_POOL_ID,
-      member_wallet_address: memberWalletAddress,
-      amount,
-      currency,
-      interval,
-      next_payment_date: toClickHouseDateTime(addIntervalDate(new Date(), interval)),
-      access_token: encryptSecret(grant.accessToken),
-      manage_uri: encryptSecret(grant.manageUri),
-      status: 'active',
-      updated_at: toClickHouseDateTime(new Date()),
-    }])
+    const { error: recurringInsertError } = await admin
+      .from('recurring_contributions')
+      .insert({
+        id: recurringId,
+        member_id: members[0].id,
+        pool_id: GLOBAL_POOL_ID,
+        member_wallet_address: memberWalletAddress,
+        amount,
+        currency,
+        interval,
+        next_payment_date: addIntervalDate(new Date(), interval).toISOString(),
+        access_token: encryptSecret(grant.accessToken),
+        manage_uri: encryptSecret(grant.manageUri),
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      })
+
+    if (recurringInsertError) {
+      return NextResponse.json({ error: `Failed to persist recurring contribution setup: ${recurringInsertError.message}` }, { status: 500 })
+    }
 
     return NextResponse.json({
       recurring_id: recurringId,
@@ -139,7 +176,7 @@ export async function POST(req: Request) {
     }, { status: 201 })
   } catch (err: unknown) {
     console.error(err)
-    const message = err instanceof Error ? err.message : 'Internal error'
+    const message = formatOpenPaymentsError(err)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

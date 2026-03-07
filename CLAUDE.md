@@ -7,7 +7,7 @@
 
 ## What We're Building
 
-**SafePool** is a community-powered emergency fund platform. Think of a neighbourhood savings circle (ROSCA) that automatically pays out the moment a natural disaster hits. People pool small contributions → disaster is detected from USGS/GDACS APIs → Interledger (Open Payments) sends payouts instantly to affected members → ClickHouse tracks everything in real-time.
+**SafePool** is a community-powered emergency fund platform. Think of a neighbourhood savings circle (ROSCA) that automatically pays out the moment a natural disaster hits. People pool small contributions → disaster is detected from USGS/GDACS APIs → Interledger (Open Payments) sends payouts instantly to affected members → Supabase stores transactional state while ClickHouse powers disasters + analytics.
 
 **Architecture status (authoritative):** SafePool is now **single global pool only**. Multi-pool routes/flows are out of scope and should not be reintroduced.
 
@@ -33,7 +33,7 @@
 |-------|------|-----------|
 | Framework | Next.js 16 (App Router) | Free |
 | Styling | Tailwind CSS + shadcn/ui | Free |
-| Database | ClickHouse Cloud | Free (1 node, 10GB) |
+| Database | Supabase Postgres + ClickHouse Cloud | Free |
 | Payments | Open Payments Testnet | Free (`wallet.interledger-test.dev`) |
 | Auth | Supabase Auth (Google OAuth) | Free |
 | Email | Nodemailer + Gmail SMTP | Free (Gmail App Password) |
@@ -88,7 +88,9 @@ safepool/
 │           ├── process-payouts/route.ts
 │           └── process-recurring/route.ts
 ├── lib/
-│   ├── clickhouse.ts       # ClickHouse client singleton
+│   ├── clickhouse.ts       # ClickHouse client singleton (disasters + analytics)
+│   ├── supabase/admin.ts   # Supabase service-role server client
+│   ├── supabase/server.ts  # Supabase auth server client
 │   ├── open-payments.ts    # ILP authenticated client + helpers
 │   ├── disaster-engine.ts  # Haversine + trigger rule evaluation
 │   ├── payout-engine.ts    # 4 distribution model calculators
@@ -105,7 +107,9 @@ safepool/
 │   └── DisasterTriggerAlert.tsx # Red alert banner on auto-trigger
 ├── types/index.ts              # All shared TypeScript types
 ├── scripts/
-│   ├── init-db.sql             # ClickHouse CREATE TABLE + MV statements
+│   ├── init-db.sql             # ClickHouse disaster + analytics schema
+│   ├── init-supabase.sql       # Supabase transactional schema
+│   ├── trim-clickhouse-transactional.sql  # Drops deprecated ClickHouse transactional tables
 │   └── seed.ts                 # Insert demo data into ClickHouse
 ├── .env.local                  # Never commit this
 ├── .env.example                # Commit this (no secrets)
@@ -155,6 +159,7 @@ CRON_SECRET=
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 ```
 
 ---
@@ -175,18 +180,19 @@ const client = createClient({
 export default client
 ```
 
-### API Route Pattern
+### API Route Pattern (Transactional on Supabase)
 ```typescript
 // app/api/global/pool/route.ts
 import { NextResponse } from 'next/server'
-import client from '@/lib/clickhouse'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 
 export async function GET() {
-  const result = await client.query({
-    query: 'SELECT id, name, contribution_amount, currency FROM pools WHERE is_active = 1 ORDER BY created_at DESC LIMIT 1',
-    format: 'JSONEachRow',
-  })
-  const data = await result.json()
+  const admin = createSupabaseAdminClient()
+  const { data } = await admin
+    .from('members')
+    .select('id,pool_id,user_id,wallet_address')
+    .eq('is_active', true)
+    .limit(100)
   return NextResponse.json(data)
 }
 ```
@@ -214,11 +220,13 @@ export async function GET() {
 
 ## Database Quick Reference
 
-**8 tables:** `pools`, `members`, `contributions`, `disaster_events`, `payouts`, `proposals`, `votes`, `users`
+**Supabase transactional tables:** `users`, `user_wallets`, `members`, `pending_contributions`, `contributions`, `payment_grant_sessions`, `payment_status_cache`, `recurring_contributions`, `proposals`, `votes`, `payouts`
 
-**4 materialized views:** `pool_balances` (SummingMergeTree), `payout_latency` (AggregatingMergeTree), `contribution_streaks` (SummingMergeTree), `disaster_heatmap` (SummingMergeTree)
+**ClickHouse disaster/analytics tables + MVs:** `disaster_events`, `disaster_event_processing`, `pool_balances`, `payout_latency`, `contribution_streaks`, `disaster_heatmap`
 
-Run `scripts/init-db.sql` in ClickHouse Cloud SQL console to create schema.
+Run `scripts/init-supabase.sql` in Supabase SQL editor to create transactional schema.
+Run `scripts/init-db.sql` in ClickHouse Cloud SQL console to create disasters + analytics schema.
+Run `scripts/trim-clickhouse-transactional.sql` after cutover to drop deprecated ClickHouse transactional tables.
 Run `npx ts-node scripts/seed.ts` to load demo data.
 
 ---
@@ -230,6 +238,15 @@ npm run dev          # Start dev server at localhost:3000
 npm run build        # Production build
 npx ts-node scripts/seed.ts   # Seed demo data
 ```
+
+---
+
+## Bug Guardrails (Do Not Regress)
+
+- Open Payments key parsing: `OPEN_PAYMENTS_PRIVATE_KEY` may be PEM text, escaped-PEM, base64 DER/PEM, or file path. Do not assume PEM-only input.
+- Do not hard-code Open Payments amount currency/scale (`USD`, `2`). Always use wallet-native `assetCode` and `assetScale` from wallet address metadata.
+- `DEMO_MODE=true` simulates payments (no real wallet popup or on-chain/testnet movement). UI should clearly indicate simulated success.
+- In Next/Turbopack runtime, `@interledger/open-payments` OpenAPI spec files may fail to resolve from bundled paths; keep `validateResponses: false` in authenticated client init for stability.
 
 ---
 
