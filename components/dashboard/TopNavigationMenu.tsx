@@ -1,10 +1,11 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { AmbientLight, Box3, DirectionalLight, Group, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import type { User } from '@supabase/supabase-js'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 
 import { Button } from '@/components/ui/button'
@@ -201,6 +202,41 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const router = useRouter()
   const searchParams = useSearchParams()
   const [showMiniGodzilla, setShowMiniGodzilla] = useState(true)
+  const [showWelcomeOverlay, setShowWelcomeOverlay] = useState(false)
+  const [welcomeOverlayFading, setWelcomeOverlayFading] = useState(false)
+  const [welcomeName, setWelcomeName] = useState('Member')
+  const welcomeTimersRef = useRef<number[]>([])
+
+  const getWelcomeName = (user: User) => {
+    const fullName = user.user_metadata?.full_name
+    const name = user.user_metadata?.name
+    if (typeof fullName === 'string' && fullName.trim()) return fullName.trim()
+    if (typeof name === 'string' && name.trim()) return name.trim()
+    if (user.email) return user.email.split('@')[0]
+    return 'Member'
+  }
+
+  const triggerWelcomeOverlay = (user: User) => {
+    setWelcomeName(getWelcomeName(user))
+    setWelcomeOverlayFading(false)
+    setShowWelcomeOverlay(true)
+
+    for (const timer of welcomeTimersRef.current) {
+      window.clearTimeout(timer)
+    }
+    welcomeTimersRef.current = []
+
+    const fadeTimer = window.setTimeout(() => {
+      setWelcomeOverlayFading(true)
+    }, 1800)
+
+    const hideTimer = window.setTimeout(() => {
+      setShowWelcomeOverlay(false)
+      setWelcomeOverlayFading(false)
+    }, 3000)
+
+    welcomeTimersRef.current.push(fadeTimer, hideTimer)
+  }
 
   useEffect(() => {
     let mounted = true
@@ -231,14 +267,21 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event: unknown, session: { user?: unknown } | null) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
       if (mounted) {
         setAuthed(Boolean(session?.user))
+        if (event === 'SIGNED_IN' && session?.user) {
+          triggerWelcomeOverlay(session.user)
+        }
       }
     })
 
     return () => {
       mounted = false
+      for (const timer of welcomeTimersRef.current) {
+        window.clearTimeout(timer)
+      }
+      welcomeTimersRef.current = []
       subscription.unsubscribe()
     }
   }, [])
@@ -260,11 +303,33 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     }
   }, [])
 
+  const getAuthRedirectOrigin = () => {
+    const runtimeOrigin = window.location.origin
+    const hostname = window.location.hostname
+    const isLocalhost = hostname === 'localhost' || hostname === '127.0.0.1'
+    if (isLocalhost) return runtimeOrigin
+
+    const configuredSiteUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim()
+    if (!configuredSiteUrl) return runtimeOrigin
+
+    try {
+      const configuredOrigin = new URL(configuredSiteUrl).origin
+      const configuredHost = new URL(configuredSiteUrl).hostname
+      if (configuredHost === hostname) {
+        return configuredOrigin
+      }
+    } catch {
+      return runtimeOrigin
+    }
+
+    return runtimeOrigin
+  }
+
   const handleSignIn = async () => {
     setError('')
     try {
       const supabase = createSupabaseBrowserClient()
-      const origin = window.location.origin
+      const origin = getAuthRedirectOrigin()
       const redirectTo = `${origin}/auth/callback?next=/`
       const { error: authError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -542,6 +607,17 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
 
   return (
     <>
+      {showWelcomeOverlay && (
+        <div
+          className={`pointer-events-none fixed inset-0 z-[70] flex items-center justify-center bg-zinc-900/62 backdrop-blur-sm transition-opacity duration-700 ${
+            welcomeOverlayFading ? 'opacity-0' : 'opacity-100'
+          }`}
+        >
+          <p className="px-8 text-center text-4xl font-black uppercase tracking-[0.14em] text-white drop-shadow-[0_8px_28px_rgba(0,0,0,0.6)]">
+            Welcome, {welcomeName}
+          </p>
+        </div>
+      )}
       <div className="rounded-lg p-1">
         <div className="flex items-center gap-1">
           {!authed ? (

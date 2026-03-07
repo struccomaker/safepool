@@ -4,10 +4,13 @@ import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
+  const forwardedHost = request.headers.get('x-forwarded-host')
+  const forwardedProto = request.headers.get('x-forwarded-proto') ?? 'https'
+  const requestOrigin = forwardedHost ? `${forwardedProto}://${forwardedHost}` : url.origin
   const code = url.searchParams.get('code')
   const popupMode = url.searchParams.get('popup') === '1'
-  const nextPath = url.searchParams.get('next') ?? '/dashboard'
-  const safeNextPath = nextPath.startsWith('/') ? nextPath : '/dashboard'
+  const nextPath = url.searchParams.get('next') ?? '/'
+  const safeNextPath = nextPath.startsWith('/') ? nextPath : '/'
 
   if (code) {
     const supabase = await createSupabaseServerClient()
@@ -27,5 +30,5 @@ export async function GET(request: Request) {
   }
 
   const redirectPath = popupMode ? '/auth/popup-complete' : safeNextPath
-  return NextResponse.redirect(new URL(redirectPath, url.origin))
+  return NextResponse.redirect(new URL(redirectPath, requestOrigin))
 }
