@@ -27,7 +27,7 @@ export async function GET() {
       getPoolWalletMetadata(),
       admin
         .from('contributions')
-        .select('id,member_id,amount,currency,contributed_at')
+        .select('id,member_id,donor_name,is_anonymous,amount,currency,contributed_at')
         .eq('pool_id', GLOBAL_POOL_ID)
         .eq('status', 'completed')
         .order('contributed_at', { ascending: false })
@@ -52,7 +52,7 @@ export async function GET() {
 
     const donations: SidebarDonationItem[] = contributionsResult.data.map((row) => ({
       id: row.id,
-      member: toDisplayMember(row.member_id),
+      member: row.is_anonymous ? 'anon' : (row.donor_name?.trim() || toDisplayMember(row.member_id)),
       amount: Number(row.amount),
       currency: row.currency,
       contributed_at: row.contributed_at,

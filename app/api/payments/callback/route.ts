@@ -32,6 +32,8 @@ interface IncomingPayload {
   member_wallet_address: string
   incoming_payment_id: string
   quote_id: string
+  donor_name?: string
+  is_anonymous?: boolean
 }
 
 interface OutgoingPayload {
@@ -50,6 +52,8 @@ interface RecurringPayload {
   amount: number
   currency: string
   interval: string
+  donor_name?: string
+  is_anonymous?: boolean
 }
 
 interface PendingContributionRow {
@@ -59,6 +63,8 @@ interface PendingContributionRow {
   amount: number
   currency: string
   incoming_payment_id: string
+  donor_name: string | null
+  is_anonymous: boolean | null
 }
 
 interface OpenPaymentsErrorLike {
@@ -156,7 +162,7 @@ async function finalizeOneTimeContribution(contributionId: string): Promise<{
 
   const { data: pendingRows, error: pendingError } = await admin
     .from('pending_contributions')
-    .select('id,pool_id,member_id,amount,currency,incoming_payment_id')
+    .select('id,pool_id,member_id,amount,currency,incoming_payment_id,donor_name,is_anonymous')
     .eq('id', contributionId)
     .limit(1)
 
@@ -180,12 +186,14 @@ async function finalizeOneTimeContribution(contributionId: string): Promise<{
       id: pending.id,
       pool_id: pending.pool_id,
       member_id: pending.member_id,
-      amount: pending.amount,
-      currency: pending.currency,
-      incoming_payment_id: pending.incoming_payment_id,
-      contributed_at: contributedAt,
-      status: 'completed',
-    }, { onConflict: 'id' })
+        amount: pending.amount,
+        currency: pending.currency,
+        incoming_payment_id: pending.incoming_payment_id,
+        donor_name: pending.donor_name ?? 'SafePool Member',
+        is_anonymous: Boolean(pending.is_anonymous),
+        contributed_at: contributedAt,
+        status: 'completed',
+      }, { onConflict: 'id' })
 
   if (contributionUpsertError) {
     throw new Error(`Failed to finalize contribution: ${contributionUpsertError.message}`)
@@ -458,6 +466,8 @@ export async function GET(req: Request) {
         member_wallet_address: recurringPayload.member_wallet_address,
         amount: Number(recurringPayload.amount),
         currency: recurringPayload.currency,
+        donor_name: recurringPayload.donor_name ?? 'SafePool Member',
+        is_anonymous: Boolean(recurringPayload.is_anonymous),
         interval: recurringPayload.interval,
         next_payment_date: addIntervalDate(new Date(), recurringPayload.interval).toISOString(),
         access_token: encryptSecret(finalized.accessToken),

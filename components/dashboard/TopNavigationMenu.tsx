@@ -623,12 +623,17 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     setSuccessMessage('')
 
     const parsedAmount = Number(donationAmount)
-    if (!Number.isFinite(parsedAmount) || parsedAmount < 10 || parsedAmount > 500 || parsedAmount % 10 !== 0) {
-      setDonationError('Donation amount must be between $10 and $500 in increments of $10.')
+    if (!Number.isFinite(parsedAmount) || parsedAmount < 10 || parsedAmount > 500 || parsedAmount % 1 !== 0) {
+      setDonationError('Donation amount must be between $10 and $500 in increments of $1.')
       return
     }
 
     setDonationStep('submitting')
+
+    const donorNameCandidate = profileUser?.user_metadata?.full_name
+      ?? profileUser?.email?.split('@')[0]
+      ?? 'SafePool Member'
+    const donorName = String(donorNameCandidate).trim().slice(0, 120)
 
     try {
       const ensureMemberJoin = async () => {
@@ -656,6 +661,8 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
             amount: parsedAmount,
             currency: 'SGD',
             interval: recurringInterval,
+            is_anonymous: isAnonymous,
+            donor_name: donorName,
           }),
         })
 
@@ -685,6 +692,8 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         body: JSON.stringify({
           amount: parsedAmount,
           currency: 'SGD',
+          is_anonymous: isAnonymous,
+          donor_name: donorName,
         }),
       })
 
@@ -946,7 +955,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
                       min={10}
                       onChange={(event) => setDonationAmount(event.target.value)}
                       required
-                      step={10}
+                      step={1}
                       type="number"
                       value={donationAmount}
                     />

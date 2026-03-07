@@ -13,6 +13,8 @@ import { encryptSecret } from '@/lib/secret-crypto'
 interface ContributeRequest {
   amount: number
   currency: string
+  is_anonymous?: boolean
+  donor_name?: string
 }
 
 function isContributeRequest(value: unknown): value is ContributeRequest {
@@ -20,12 +22,17 @@ function isContributeRequest(value: unknown): value is ContributeRequest {
     return false
   }
 
-  const candidate = value as { amount?: unknown; currency?: unknown }
+  const candidate = value as { amount?: unknown; currency?: unknown; is_anonymous?: unknown; donor_name?: unknown }
+  const isAnonymousValid = typeof candidate.is_anonymous === 'undefined' || typeof candidate.is_anonymous === 'boolean'
+  const donorNameValid = typeof candidate.donor_name === 'undefined' || typeof candidate.donor_name === 'string'
+
   return typeof candidate.amount === 'number'
     && Number.isFinite(candidate.amount)
     && typeof candidate.currency === 'string'
     && candidate.currency.trim().length > 0
     && candidate.currency.trim().length <= 12
+    && isAnonymousValid
+    && donorNameValid
 }
 
 interface CreateOneTimeAuthorizationWithQuote extends Record<string, unknown> {
@@ -82,7 +89,11 @@ export async function POST(req: NextRequest) {
     const body = {
       amount: rawBody.amount,
       currency: rawBody.currency.trim().toUpperCase(),
+      is_anonymous: Boolean(rawBody.is_anonymous),
+      donor_name: typeof rawBody.donor_name === 'string' ? rawBody.donor_name.trim().slice(0, 120) : '',
     }
+
+    const donorName = body.donor_name || 'SafePool Member'
 
     if (body.amount <= 0) {
       return NextResponse.json({ error: 'currency and a positive amount are required' }, { status: 400 })
@@ -154,6 +165,8 @@ export async function POST(req: NextRequest) {
             member_wallet_address: memberWallet,
             incoming_payment_id: payment.incomingPaymentId,
             quote_id: typeof maybeQuoteId === 'string' ? maybeQuoteId : '',
+            is_anonymous: body.is_anonymous,
+            donor_name: donorName,
           }),
           status: 'pending',
         })
@@ -172,6 +185,8 @@ export async function POST(req: NextRequest) {
         amount: body.amount,
         currency: effectiveCurrency,
         incoming_payment_id: payment.incomingPaymentId,
+        is_anonymous: body.is_anonymous,
+        donor_name: donorName,
       })
 
     if (pendingInsertError) {

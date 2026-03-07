@@ -13,6 +13,8 @@ interface CreateRecurringBody {
   amount?: number
   currency?: string
   interval?: 'P1D' | 'P1W' | 'P1M'
+  is_anonymous?: boolean
+  donor_name?: string
 }
 
 interface OpenPaymentsErrorLike {
@@ -75,6 +77,10 @@ export async function POST(req: Request) {
     const amount = Number(body.amount)
     const currency = body.currency ?? 'USD'
     const interval = body.interval ?? 'P1M'
+    const isAnonymous = Boolean(body.is_anonymous)
+    const donorName = typeof body.donor_name === 'string' && body.donor_name.trim().length > 0
+      ? body.donor_name.trim().slice(0, 120)
+      : 'SafePool Member'
 
     if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'amount must be a positive number' }, { status: 400 })
@@ -133,6 +139,8 @@ export async function POST(req: Request) {
             amount,
             currency,
             interval,
+            donor_name: donorName,
+            is_anonymous: isAnonymous,
           }),
           status: 'pending',
         })
@@ -157,6 +165,8 @@ export async function POST(req: Request) {
         member_wallet_address: memberWalletAddress,
         amount,
         currency,
+        donor_name: donorName,
+        is_anonymous: isAnonymous,
         interval,
         next_payment_date: addIntervalDate(new Date(), interval).toISOString(),
         access_token: encryptSecret(grant.accessToken),

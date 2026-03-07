@@ -28,6 +28,8 @@ function isConfirmBody(value: unknown): value is ConfirmBody {
 interface GrantSessionPayload {
   incomingPaymentId?: string
   outgoingPaymentId?: string
+  donor_name?: string
+  is_anonymous?: boolean
 }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -106,7 +108,7 @@ export async function POST(req: Request) {
     // Look up the pending contribution
     const { data: rows, error: pendingError } = await admin
       .from('pending_contributions')
-      .select('id,pool_id,member_id,amount,currency,incoming_payment_id')
+      .select('id,pool_id,member_id,amount,currency,incoming_payment_id,donor_name,is_anonymous')
       .eq('id', body.contribution_id)
       .in('member_id', memberIds)
       .limit(1)
@@ -125,6 +127,8 @@ export async function POST(req: Request) {
       amount: number
       currency: string
       incoming_payment_id: string
+      donor_name: string | null
+      is_anonymous: boolean | null
     }
 
     let incomingPaymentId = contribution.incoming_payment_id
@@ -205,16 +209,18 @@ export async function POST(req: Request) {
 
     const { error: insertContributionError } = await admin
       .from('contributions')
-      .upsert({
-        id: contribution.id,
-        pool_id: contribution.pool_id,
-        member_id: contribution.member_id,
-        amount: contribution.amount,
-        currency: contribution.currency,
-        incoming_payment_id: incomingPaymentId,
-        contributed_at: new Date().toISOString(),
-        status: 'completed',
-      }, { onConflict: 'id' })
+        .upsert({
+          id: contribution.id,
+          pool_id: contribution.pool_id,
+          member_id: contribution.member_id,
+          amount: contribution.amount,
+          currency: contribution.currency,
+          incoming_payment_id: incomingPaymentId,
+          donor_name: contribution.donor_name ?? 'SafePool Member',
+          is_anonymous: Boolean(contribution.is_anonymous),
+          contributed_at: new Date().toISOString(),
+          status: 'completed',
+        }, { onConflict: 'id' })
 
     if (insertContributionError) {
       return NextResponse.json({ error: `Failed to persist confirmed contribution: ${insertContributionError.message}` }, { status: 500 })
