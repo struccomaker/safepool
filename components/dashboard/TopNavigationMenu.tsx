@@ -3,11 +3,16 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { AmbientLight, Box3, DirectionalLight, Group, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
+
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import WalletSetupForm from '@/components/WalletSetupForm'
+import GovernanceModal from '@/components/dashboard/GovernanceModal'
+import VotingModal from '@/components/dashboard/VotingModal'
 
 interface TopNavigationMenuProps {
   isAuthenticated?: boolean
@@ -42,6 +47,100 @@ interface ContributionHistoryItem {
 const itemClass =
   'inline-flex h-9 items-center justify-center rounded-md px-4 text-sm text-white/80 transition-colors hover:bg-white/10 hover:text-white'
 
+const MINI_GODZILLA_ORIENTATIONS = {
+  front: [0, 0, 0],
+  back: [0, Math.PI, 0],
+  left: [0, -Math.PI / 2, 0],
+  right: [0, Math.PI / 2, 0],
+  top: [-Math.PI / 2, 0, 0],
+  bottom: [Math.PI / 2, 0, 0],
+  sideTiltLeft: [0, 0, Math.PI / 2],
+  sideTiltRight: [0, 0, -Math.PI / 2],
+} as const
+
+const MINI_GODZILLA_DIRECTION: keyof typeof MINI_GODZILLA_ORIENTATIONS = 'right'
+
+function MiniGodzillaBadge() {
+  const [host, setHost] = useState<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!host) return
+
+    const width = 58
+    const height = 58
+    const scene = new Scene()
+    const camera = new PerspectiveCamera(38, width / height, 0.1, 100)
+    camera.position.set(0, 0.45, 2.6)
+
+    const renderer = new WebGLRenderer({ antialias: true, alpha: true })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+    renderer.setSize(width, height)
+    renderer.setClearColor(0x000000, 0)
+    host.appendChild(renderer.domElement)
+
+    const keyLight = new DirectionalLight(0xffffff, 1.4)
+    keyLight.position.set(2.2, 2, 2)
+    scene.add(keyLight)
+
+    const fillLight = new AmbientLight(0xffffff, 0.8)
+    scene.add(fillLight)
+
+    const loader = new GLTFLoader()
+    let model: Group | null = null
+    let rafId = 0
+    let mounted = true
+
+    loader.load(
+      '/godzilla.glb',
+      (gltf) => {
+        if (!mounted) return
+
+        const nextModel = gltf.scene
+        nextModel.updateMatrixWorld(true)
+
+        const box = new Box3().setFromObject(nextModel)
+        const size = new Vector3()
+        box.getSize(size)
+        if (size.y > 0) {
+          const scale = (0.42 / size.y) * 3
+          nextModel.scale.multiplyScalar(scale)
+          nextModel.updateMatrixWorld(true)
+        }
+
+        const [rotX, rotY, rotZ] = MINI_GODZILLA_ORIENTATIONS[MINI_GODZILLA_DIRECTION]
+        nextModel.rotation.set(rotX, rotY, rotZ)
+        model = nextModel
+        scene.add(nextModel)
+      },
+      undefined,
+      () => {}
+    )
+
+    const animate = () => {
+      if (model) {
+        model.rotation.y += 0.02
+      }
+      renderer.render(scene, camera)
+      rafId = window.requestAnimationFrame(animate)
+    }
+
+    rafId = window.requestAnimationFrame(animate)
+
+    return () => {
+      mounted = false
+      window.cancelAnimationFrame(rafId)
+      renderer.dispose()
+      if (renderer.domElement.parentNode) {
+        renderer.domElement.parentNode.removeChild(renderer.domElement)
+      }
+    }
+  }, [host])
+
+  return (
+    <div className="inline-flex h-14 w-14 items-center justify-center" ref={setHost} />
+  )
+}
+
 export default function TopNavigationMenu({ isAuthenticated = false }: TopNavigationMenuProps) {
   const [authed, setAuthed] = useState(isAuthenticated)
   const [error, setError] = useState('')
@@ -49,6 +148,9 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const [showDonationModal, setShowDonationModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
 
+  const [showGovernanceModal, setShowGovernanceModal] = useState(false)
+  const [showVotingModal, setShowVotingModal] = useState(false)
+  const [walletId, setWalletId] = useState('')
   const [donationAmount, setDonationAmount] = useState('50')
   const [isRecurring, setIsRecurring] = useState(false)
   const [recurringInterval, setRecurringInterval] = useState<RecurringInterval>('P1M')
@@ -71,6 +173,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
 
   const router = useRouter()
   const searchParams = useSearchParams()
+  const [showMiniGodzilla, setShowMiniGodzilla] = useState(true)
 
   useEffect(() => {
     let mounted = true
@@ -146,6 +249,21 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       setSuccessMessage('Recurring contribution setup is active. Scheduled charges will run via cron.')
     }
   }, [searchParams])
+    const handleGodzillaSpawned = () => {
+      setShowMiniGodzilla(false)
+    }
+
+    const handleGodzillaCleared = () => {
+      setShowMiniGodzilla(true)
+    }
+
+    window.addEventListener('safepool:godzilla-spawned', handleGodzillaSpawned as EventListener)
+    window.addEventListener('safepool:godzilla-cleared', handleGodzillaCleared as EventListener)
+    return () => {
+      window.removeEventListener('safepool:godzilla-spawned', handleGodzillaSpawned as EventListener)
+      window.removeEventListener('safepool:godzilla-cleared', handleGodzillaCleared as EventListener)
+    }
+  }, [])
 
   const handleSignIn = async () => {
     setError('')
@@ -437,10 +555,20 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
             </button>
           ) : (
             <>
-              <Link className={itemClass} href="/governance">
+              {showMiniGodzilla && <MiniGodzillaBadge />}
+              <button
+                className={`${itemClass} text-white/40 hover:text-white/60`}
+                onClick={() => setShowGovernanceModal(true)}
+                type="button"
+              >
                 Governance
               </Link>
               <button className={itemClass} onClick={() => void openDonationModal()} type="button">
+              </button>
+              <button className={itemClass} onClick={() => setShowVotingModal(true)} type="button">
+                Voting
+              </button>
+              <button className={itemClass} onClick={() => setShowDonationModal(true)} type="button">
                 Donation
               </button>
               <button className={itemClass} onClick={() => void openProfileModal()} type="button">
@@ -454,6 +582,9 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
         </div>
         {error ? <p className="px-2 pt-1 text-xs text-red-300">{error}</p> : null}
       </div>
+
+      <GovernanceModal open={showGovernanceModal} onClose={() => setShowGovernanceModal(false)} />
+      <VotingModal open={showVotingModal} onClose={() => setShowVotingModal(false)} />
 
       {showDonationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-sm">
