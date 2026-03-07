@@ -25,8 +25,45 @@ body {
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
 
-/* LED ticker glow */
-.led-ticker {
-  font-family: 'Courier New', Courier, monospace;
-  letter-spacing: 0.05em;
+/* LED ticker scroll animation */
+@keyframes led-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.led-track {
+  animation: led-scroll 35s linear infinite;
+  display: flex;
+  width: max-content;
+}
+
+.led-track:hover {
+  animation-play-state: paused;
+}
+
+/* LED dot-matrix grid overlay — simulates physical LED pixel panel */
+.led-panel {
+  position: relative;
+  background: #080400;
+}
+
+.led-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(0,0,0,0.55) 1px, transparent 1px);
+  background-size: 3px 3px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* LED amber glow text */
+.led-text {
+  color: #FF8C00;
+  text-shadow:
+    0 0 4px  #FF8C00,
+    0 0 8px  #FF6600,
+    0 0 16px #FF4400;
+  font-family: 'VT323', monospace;
+  letter-spacing: 0.08em;
 }

@@ -11,7 +11,14 @@ export async function GET() {
         try {
           const result = await client.query({
             query: `
-              SELECT c.id, c.amount, c.currency, c.contributed_at, c.pool_id, p.name AS pool_name
+              SELECT
+                c.id,
+                c.amount,
+                c.currency,
+                c.contributed_at,
+                c.pool_id,
+                p.name AS pool_name,
+                substring(c.member_id, 1, 8) AS member_name
               FROM contributions c
               JOIN pools p ON c.pool_id = p.id
               WHERE c.status = 'completed'

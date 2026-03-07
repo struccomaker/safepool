@@ -5,7 +5,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'rec
 
 interface DataPoint {
   date: string
-  total: number
+  daily_total: number
   count: number
 }
 
@@ -33,7 +33,7 @@ export default function ContributionTimeline({ poolId }: ContributionTimelinePro
         setData(
           Array.from({ length: 14 }, (_, i) => ({
             date: new Date(Date.now() - (13 - i) * 86400000).toISOString().split('T')[0],
-            total: Math.random() * 200 + 50,
+            daily_total: Math.random() * 200 + 50,
             count: Math.floor(Math.random() * 10 + 1),
           }))
         )
@@ -59,9 +59,9 @@ export default function ContributionTimeline({ poolId }: ContributionTimelinePro
           <Tooltip
             contentStyle={{ background: '#111', border: '1px solid #222', borderRadius: 8 }}
             labelStyle={{ color: '#aaa' }}
-            formatter={(v: number) => [`$${v.toFixed(2)}`, 'Total']}
+            formatter={(v: number) => [`$${Number(v).toFixed(2)}`, 'Total']}
           />
-          <Area type="monotone" dataKey="total" stroke="#22c55e" strokeWidth={2} fill="url(#green-grad)" />
+          <Area type="monotone" dataKey="daily_total" stroke="#22c55e" strokeWidth={2} fill="url(#green-grad)" />
         </AreaChart>
       </ResponsiveContainer>
     </div>
