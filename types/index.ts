@@ -179,12 +179,14 @@ export interface JoinPoolRequest {
 
 export interface ContributeRequest {
   pool_id: string
+  member_id?: string
   amount: number
   currency: string
+  wallet_address?: string
 }
 
 export interface ManualTriggerRequest {
-  pool_id: string
+  pool_id?: string
   disaster_type: DisasterType
   magnitude: number
   location_lat: number
@@ -198,7 +200,7 @@ export interface ProposeRequest {
   description: string
   change_type: ChangeType
   new_value: string
-  voting_days: number
+  voting_days?: number
 }
 
 export interface VoteRequest {

@@ -1,15 +1,10 @@
 import { NextResponse } from 'next/server'
-import { type NextRequest } from 'next/server'
-import { getToken } from 'next-auth/jwt'
 import client from '@/lib/clickhouse'
 import { evaluateTriggers } from '@/lib/disaster-engine'
 import type { ManualTriggerRequest } from '@/types'
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const token = await getToken({ req })
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
     const body = await req.json() as ManualTriggerRequest
 
     // Insert synthetic disaster event
@@ -18,7 +13,7 @@ export async function POST(req: NextRequest) {
       table: 'disaster_events',
       values: [{
         id: eventId,
-        source: 'usgs',
+        source: 'manual',
         external_id: `manual-${eventId}`,
         disaster_type: body.disaster_type,
         magnitude: body.magnitude,
@@ -33,10 +28,8 @@ export async function POST(req: NextRequest) {
       format: 'JSONEachRow',
     })
 
-    // Immediately evaluate triggers for the specified pool
-    if (body.pool_id) {
-      await evaluateTriggers(eventId)
-    }
+    // Immediately evaluate triggers
+    await evaluateTriggers(eventId)
 
     return NextResponse.json({ eventId })
   } catch (err: unknown) {

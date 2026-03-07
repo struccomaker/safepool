@@ -28,8 +28,8 @@ export default function AnalyticsPage() {
 
       <div className="grid md:grid-cols-3 gap-4 mb-8">
         {[
-          { label: 'Total Funds Pooled', value: `$${balances.reduce((s, b) => s + Number(b.balance ?? b.total_in ?? 0), 0).toFixed(2)}` },
-          { label: 'Total Contributions', value: balances.reduce((s, b) => s + Number(b.count ?? 0), 0).toString() },
+          { label: 'Total Funds Pooled', value: `$${balances.reduce((s, b) => s + Number(b.total_in ?? 0), 0).toFixed(2)}` },
+          { label: 'Total Contributions', value: balances.reduce((s, b) => s + Number(b.contribution_count ?? 0), 0).toString() },
           { label: 'Pools Tracked', value: balances.length.toString() },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-5 text-center">
@@ -62,7 +62,7 @@ export default function AnalyticsPage() {
               <PieChart>
                 <Pie
                   data={balances}
-                  dataKey="balance"
+                  dataKey="total_in"
                   nameKey="pool_id"
                   cx="50%"
                   cy="50%"

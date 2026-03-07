@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     const result = await client.query({
       query: poolId
         ? `SELECT toDate(contributed_at) AS date,
-                  sum(amount) AS total,
+                  sum(amount) AS daily_total,
                   count() AS count
            FROM contributions
            WHERE pool_id = {pool_id:String} AND status = 'completed'
@@ -19,7 +19,7 @@ export async function GET(req: Request) {
            ORDER BY date ASC
            LIMIT 90`
         : `SELECT toDate(contributed_at) AS date,
-                  sum(amount) AS total,
+                  sum(amount) AS daily_total,
                   count() AS count
            FROM contributions
            WHERE status = 'completed'
