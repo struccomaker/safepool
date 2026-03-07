@@ -48,26 +48,23 @@ export default async function DashboardPage() {
             <h2 className="text-lg font-semibold">Global Pool</h2>
             <Link href="/pool" className="text-green-400 text-sm hover:underline">View details →</Link>
           </div>
-          <Link href="/pool">
-            <div className="bg-white/5 border border-white/10 hover:border-green-500/30 rounded-xl p-6 cursor-pointer transition-colors">
-              <div className="font-semibold text-lg mb-1">SafePool Global Fund</div>
-              <div className="text-gray-400 text-sm mb-4">
-                One shared emergency fund for all members worldwide.
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-green-400 font-mono font-semibold text-lg">
-                  ${totalFunds.toFixed(2)} USD
-                </span>
-                <Link
-                  href="/contribute"
-                  className="px-4 py-1.5 bg-green-500 hover:bg-green-400 text-black text-sm font-semibold rounded-lg transition-colors"
-                  onClick={e => e.stopPropagation()}
-                >
-                  Contribute
-                </Link>
-              </div>
+          <div className="bg-white/5 border border-white/10 hover:border-green-500/30 rounded-xl p-6 transition-colors">
+            <div className="font-semibold text-lg mb-1">SafePool Global Fund</div>
+            <div className="text-gray-400 text-sm mb-4">
+              One shared emergency fund for all members worldwide.
             </div>
-          </Link>
+            <div className="flex items-center justify-between">
+              <span className="text-green-400 font-mono font-semibold text-lg">
+                ${totalFunds.toFixed(2)} USD
+              </span>
+              <Link
+                href="/contribute"
+                className="px-4 py-1.5 bg-green-500 hover:bg-green-400 text-black text-sm font-semibold rounded-lg transition-colors"
+              >
+                Contribute
+              </Link>
+            </div>
+          </div>
         </div>
 
         {/* Recent Disasters */}

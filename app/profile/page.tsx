@@ -1,19 +1,28 @@
 // Server Component — user wallet + contribution history
-import { getServerSession } from 'next-auth'
 import type { Contribution } from '@/types'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 async function getHistory(): Promise<Contribution[]> {
   try {
     const res = await fetch(`${process.env.NEXTAUTH_URL}/api/payments/history/all`, { cache: 'no-store' })
     if (!res.ok) throw new Error('Failed')
-    return res.json()
+    return (await res.json()) as Contribution[]
   } catch {
     return []
   }
 }
 
 export default async function ProfilePage() {
-  const [session, history] = await Promise.all([getServerSession(), getHistory()])
+  const supabase = await createSupabaseServerClient()
+  const authPromise = supabase.auth.getUser()
+  const historyPromise = getHistory()
+  const { data: authData } = await authPromise
+  const history: Contribution[] = await historyPromise
+  const user = authData.user
+
+  const displayName = typeof user?.user_metadata?.full_name === 'string'
+    ? user.user_metadata.full_name
+    : user?.email?.split('@')[0]
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-12">
@@ -24,11 +33,11 @@ export default async function ProfilePage() {
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-white/40">Name</span>
-            <span>{session?.user?.name ?? '—'}</span>
+            <span>{displayName ?? '—'}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-white/40">Email</span>
-            <span>{session?.user?.email ?? '—'}</span>
+            <span>{user?.email ?? '—'}</span>
           </div>
         </div>
       </div>

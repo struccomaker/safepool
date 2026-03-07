@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
-import { getToken } from 'next-auth/jwt'
 import client from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 interface JoinRequest {
   wallet_address: string
@@ -22,8 +22,15 @@ function isValidWalletAddress(url: string): boolean {
 
 export async function POST(req: NextRequest) {
   try {
-    const token = await getToken({ req })
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const supabase = await createSupabaseServerClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await req.json() as JoinRequest
 
@@ -38,7 +45,7 @@ export async function POST(req: NextRequest) {
       values: [{
         id,
         pool_id: GLOBAL_POOL_ID,
-        user_id: token.id as string,
+        user_id: user.id,
         wallet_address: body.wallet_address,
         location_lat: body.location_lat,
         location_lon: body.location_lon,

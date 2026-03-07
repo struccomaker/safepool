@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import client from '@/lib/clickhouse'
 
-export async function GET(_req: Request, { params }: { params: { poolId: string } }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ poolId: string }> }) {
   try {
-    const isAll = params.poolId === 'all'
+    const { poolId } = await params
+    const isAll = poolId === 'all'
 
     const result = await client.query({
       query: isAll
@@ -16,7 +17,7 @@ export async function GET(_req: Request, { params }: { params: { poolId: string 
            WHERE pool_id = {pool_id:String}
            ORDER BY contributed_at DESC
            LIMIT 100`,
-      query_params: isAll ? {} : { pool_id: params.poolId },
+      query_params: isAll ? {} : { pool_id: poolId },
       format: 'JSONEachRow',
     })
     const data = await result.json()

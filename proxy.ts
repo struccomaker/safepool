@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
+import { updateSupabaseSession } from '@/lib/supabase/middleware'
 
-export function proxy(request: NextRequest) {
-  const sessionCookie = request.cookies.get('next-auth.session-token')
-    ?? request.cookies.get('__Secure-next-auth.session-token')
+export async function proxy(request: NextRequest) {
+  const { response, user } = await updateSupabaseSession(request)
 
   const isProtectedRoute = [
     '/dashboard',
@@ -15,13 +15,14 @@ export function proxy(request: NextRequest) {
     request.nextUrl.pathname
   )
 
-  if ((isProtectedRoute || isContributeRoute) && !sessionCookie) {
-    const loginUrl = new URL('/api/auth/signin', request.url)
-    loginUrl.searchParams.set('callbackUrl', request.nextUrl.pathname)
+  if ((isProtectedRoute || isContributeRoute) && !user) {
+    const callbackUrl = `${request.nextUrl.pathname}${request.nextUrl.search}`
+    const loginUrl = new URL('/login', request.url)
+    loginUrl.searchParams.set('callbackUrl', callbackUrl)
     return NextResponse.redirect(loginUrl)
   }
 
-  return NextResponse.next()
+  return response
 }
 
 export const config = {

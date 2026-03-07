@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import client from '@/lib/clickhouse'
 
-export async function GET(_req: Request, { params }: { params: { poolId: string } }) {
+export async function GET(_req: Request, { params }: { params: Promise<{ poolId: string }> }) {
   try {
+    const { poolId } = await params
+
     const result = await client.query({
       query: `
         SELECT id, pool_id, proposed_by, title, description,
@@ -11,7 +13,7 @@ export async function GET(_req: Request, { params }: { params: { poolId: string 
         WHERE pool_id = {pool_id:String}
         ORDER BY created_at DESC
       `,
-      query_params: { pool_id: params.poolId },
+      query_params: { pool_id: poolId },
       format: 'JSONEachRow',
     })
     const data = await result.json()

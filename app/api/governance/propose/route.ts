@@ -1,13 +1,20 @@
 import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
-import { getToken } from 'next-auth/jwt'
 import client from '@/lib/clickhouse'
 import type { ProposeRequest } from '@/types'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 export async function POST(req: NextRequest) {
   try {
-    const token = await getToken({ req })
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const supabase = await createSupabaseServerClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
 
     const body = await req.json() as ProposeRequest
 
@@ -23,7 +30,7 @@ export async function POST(req: NextRequest) {
       values: [{
         id,
         pool_id: body.pool_id,
-        proposed_by: token.id as string,
+        proposed_by: user.id,
         title: body.title,
         description: body.description,
         change_type: body.change_type,
