@@ -1,9 +1,9 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { queryRows } from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
 export async function GET() {
@@ -19,44 +19,35 @@ export async function GET() {
     }
 
     await syncSupabaseUserToClickHouse(user)
+    const admin = createSupabaseAdminClient()
 
-    const data = await queryRows<{
-      id: string
-      pool_id: string
-      member_id: string
-      amount: number
-      currency: string
-      incoming_payment_id: string
-      contributed_at: string
-      status: string
-    }>(
-      `
-      SELECT
-        toString(c.id) AS id,
-        toString(c.pool_id) AS pool_id,
-        toString(c.member_id) AS member_id,
-        c.amount,
-        c.currency,
-        c.incoming_payment_id,
-        c.contributed_at,
-        c.status
-      FROM contributions c
-      ANY INNER JOIN (
-        SELECT id
-        FROM members
-        WHERE user_id = toUUID({user_id:String})
-          AND pool_id = toUUID({pool_id:String})
-          AND is_active = 1
-      ) m ON c.member_id = m.id
-      WHERE c.pool_id = toUUID({pool_id:String})
-      ORDER BY c.contributed_at DESC
-      LIMIT 100
-      `,
-      {
-        user_id: user.id,
-        pool_id: GLOBAL_POOL_ID,
-      }
-    )
+    const { data: memberRows, error: memberError } = await admin
+      .from('members')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .eq('is_active', true)
+
+    if (memberError) {
+      return NextResponse.json({ error: `Failed to load member context: ${memberError.message}` }, { status: 500 })
+    }
+
+    const memberIds = memberRows.map((row) => row.id)
+    if (memberIds.length === 0) {
+      return NextResponse.json([])
+    }
+
+    const { data, error } = await admin
+      .from('contributions')
+      .select('id,pool_id,member_id,amount,currency,incoming_payment_id,contributed_at,status')
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .in('member_id', memberIds)
+      .order('contributed_at', { ascending: false })
+      .limit(100)
+
+    if (error) {
+      return NextResponse.json({ error: `Failed to load payment history: ${error.message}` }, { status: 500 })
+    }
 
     return NextResponse.json(data)
   } catch (err: unknown) {

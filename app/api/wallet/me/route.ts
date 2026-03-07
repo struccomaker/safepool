@@ -1,8 +1,8 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { insertRows, queryRows } from '@/lib/clickhouse'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { getOrCreateUserWalletAddress, syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 import { verifyWalletAddressRemotely } from '@/lib/wallet-address'
 
@@ -35,25 +35,18 @@ export async function GET() {
 
     const walletAddress = await getOrCreateUserWalletAddress(user)
 
-    const rows = await queryRows<{
-      wallet_address: string
-      provider: string
-      status: string
-      created_at: string
-    }>(
-      `
-      SELECT wallet_address, provider, status, toString(created_at) AS created_at
-      FROM user_wallets
-      WHERE user_id = toUUID({user_id:String})
-        AND wallet_address = {wallet_address:String}
-      ORDER BY created_at DESC
-      LIMIT 1
-      `,
-      {
-        user_id: user.id,
-        wallet_address: walletAddress,
-      }
-    )
+    const admin = createSupabaseAdminClient()
+    const { data: rows, error } = await admin
+      .from('user_wallets')
+      .select('wallet_address,provider,status,created_at')
+      .eq('user_id', user.id)
+      .eq('wallet_address', walletAddress)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      return NextResponse.json({ error: `Failed to load wallet binding: ${error.message}` }, { status: 500 })
+    }
 
     if (rows.length === 0) {
       return NextResponse.json({ wallet_address: walletAddress, provider: 'wallet.interledger-test.dev', status: 'manual_required' })
@@ -89,32 +82,58 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Failed to persist wallet in Supabase: ${updateError.message}` }, { status: 500 })
     }
 
-    const existing = await queryRows<{ wallet_address: string }>(
-      `
-      SELECT wallet_address
-      FROM user_wallets
-      WHERE user_id = toUUID({user_id:String})
-        AND wallet_address = {wallet_address:String}
-      LIMIT 1
-      `,
-      {
-        user_id: user.id,
-        wallet_address: walletAddress,
-      }
-    )
+    const admin = createSupabaseAdminClient()
+    const { data: existing, error: existingError } = await admin
+      .from('user_wallets')
+      .select('id,wallet_address')
+      .eq('user_id', user.id)
+      .eq('wallet_address', walletAddress)
+      .limit(1)
+
+    if (existingError) {
+      return NextResponse.json({ error: `Failed to check existing wallet binding: ${existingError.message}` }, { status: 500 })
+    }
+
+    const { error: clearDefaultsError } = await admin
+      .from('user_wallets')
+      .update({ is_default: false })
+      .eq('user_id', user.id)
+
+    if (clearDefaultsError) {
+      return NextResponse.json({ error: `Failed to update wallet defaults: ${clearDefaultsError.message}` }, { status: 500 })
+    }
 
     if (existing.length > 0) {
+      const { error: promoteError } = await admin
+        .from('user_wallets')
+        .update({
+          is_default: true,
+          status: 'provisioned',
+          provider: new URL(walletAddress).hostname,
+        })
+        .eq('id', existing[0].id)
+
+      if (promoteError) {
+        return NextResponse.json({ error: `Failed to update wallet binding: ${promoteError.message}` }, { status: 500 })
+      }
+
       return NextResponse.json({ wallet_address: walletAddress, status: 'provisioned' }, { status: 200 })
     }
 
-    await insertRows('user_wallets', [{
-      id: crypto.randomUUID(),
-      user_id: user.id,
-      wallet_address: walletAddress,
-      provider: new URL(walletAddress).hostname,
-      status: 'provisioned',
-      is_default: 1,
-    }])
+    const { error: insertError } = await admin
+      .from('user_wallets')
+      .insert({
+        id: crypto.randomUUID(),
+        user_id: user.id,
+        wallet_address: walletAddress,
+        provider: new URL(walletAddress).hostname,
+        status: 'provisioned',
+        is_default: true,
+      })
+
+    if (insertError) {
+      return NextResponse.json({ error: `Failed to persist wallet binding: ${insertError.message}` }, { status: 500 })
+    }
 
     return NextResponse.json({ wallet_address: walletAddress, status: 'provisioned' }, { status: 200 })
   } catch (err: unknown) {

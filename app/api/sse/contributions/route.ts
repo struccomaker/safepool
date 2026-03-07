@@ -1,9 +1,11 @@
 export const dynamic = 'force-dynamic'
 
-import client from '@/lib/clickhouse'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
+import { GLOBAL_POOL_CONFIG, GLOBAL_POOL_ID } from '@/lib/global-pool'
 
 export async function GET() {
   let interval: ReturnType<typeof setInterval> | null = null
+  const admin = createSupabaseAdminClient()
 
   const stream = new ReadableStream({
     start(controller) {
@@ -11,28 +13,31 @@ export async function GET() {
 
       const send = async () => {
         try {
-          const result = await client.query({
-            query: `
-              SELECT
-                c.id,
-                c.amount,
-                c.currency,
-                c.contributed_at,
-                c.pool_id,
-                p.name AS pool_name,
-                substring(c.member_id, 1, 8) AS member_name
-              FROM contributions c
-              JOIN pools p ON c.pool_id = p.id
-              WHERE c.status = 'completed'
-              ORDER BY c.contributed_at DESC
-              LIMIT 5
-            `,
-            format: 'JSONEachRow',
-          })
-          const rows = await result.json()
+          const { data, error } = await admin
+            .from('contributions')
+            .select('id,amount,currency,contributed_at,pool_id,member_id')
+            .eq('status', 'completed')
+            .eq('pool_id', GLOBAL_POOL_ID)
+            .order('contributed_at', { ascending: false })
+            .limit(5)
+
+          if (error) {
+            throw new Error(`Failed to load contribution stream data: ${error.message}`)
+          }
+
+          const rows = data.map((row) => ({
+            id: row.id,
+            amount: row.amount,
+            currency: row.currency,
+            contributed_at: row.contributed_at,
+            pool_id: row.pool_id,
+            pool_name: GLOBAL_POOL_CONFIG.name,
+            member_name: row.member_id.slice(0, 8),
+          }))
+
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(rows)}\n\n`))
-        } catch {
-          // Silently skip on error — stream stays alive
+        } catch (err) {
+          console.error('Contribution SSE poll failed', err)
         }
       }
 

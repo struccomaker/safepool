@@ -1,0 +1,10 @@
+drop table if exists users;
+drop table if exists user_wallets;
+drop table if exists members;
+drop table if exists pending_contributions;
+drop table if exists payment_grant_sessions;
+drop table if exists payment_status_cache;
+drop table if exists recurring_contributions;
+drop table if exists proposals;
+drop table if exists votes;
+drop table if exists pools;

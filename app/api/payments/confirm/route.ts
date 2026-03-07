@@ -1,10 +1,11 @@
 export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
-import { insertRows, queryRows, toClickHouseDateTime } from '@/lib/clickhouse'
+import { insertRows, toClickHouseDateTime } from '@/lib/clickhouse'
 import { sendContributionEmail } from '@/lib/email'
 import { pollIncomingPaymentCompletion } from '@/lib/open-payments'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
 interface ConfirmBody {
@@ -12,9 +13,7 @@ interface ConfirmBody {
   member_email?: string
 }
 
-interface GrantSessionPayload {
-  incomingPaymentId?: string
-}
+interface GrantSessionPayload { incomingPaymentId?: string }
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -31,6 +30,7 @@ export async function POST(req: Request) {
     }
 
     await syncSupabaseUserToClickHouse(user)
+    const admin = createSupabaseAdminClient()
 
     const body = await req.json() as ConfirmBody
 
@@ -42,78 +42,75 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Invalid contribution_id' }, { status: 400 })
     }
 
-    const completedRows = await queryRows<{ id: string }>(
-      `
-      SELECT toString(c.id) AS id
-      FROM contributions c
-      ANY INNER JOIN members m ON c.member_id = m.id
-      WHERE c.id = toUUID({id:String})
-        AND m.user_id = toUUID({user_id:String})
-        AND m.is_active = 1
-      LIMIT 1
-      `,
-      {
-        id: body.contribution_id,
-        user_id: user.id,
-      }
-    )
+    const { data: memberRows, error: membersError } = await admin
+      .from('members')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+
+    if (membersError) {
+      return NextResponse.json({ error: `Failed to load member context: ${membersError.message}` }, { status: 500 })
+    }
+
+    const memberIds = memberRows.map((row) => row.id)
+    if (memberIds.length === 0) {
+      return NextResponse.json({ error: 'Join SafePool first before confirming payments' }, { status: 400 })
+    }
+
+    const { data: completedRows, error: completedError } = await admin
+      .from('contributions')
+      .select('id')
+      .eq('id', body.contribution_id)
+      .in('member_id', memberIds)
+      .limit(1)
+
+    if (completedError) {
+      return NextResponse.json({ error: `Failed to load contribution status: ${completedError.message}` }, { status: 500 })
+    }
 
     if (completedRows.length > 0) {
       return NextResponse.json({ id: body.contribution_id }, { status: 200 })
     }
 
     // Look up the pending contribution
-    const rows = await queryRows<{
+    const { data: rows, error: pendingError } = await admin
+      .from('pending_contributions')
+      .select('id,pool_id,member_id,amount,currency,incoming_payment_id')
+      .eq('id', body.contribution_id)
+      .in('member_id', memberIds)
+      .limit(1)
+
+    if (pendingError) {
+      return NextResponse.json({ error: `Failed to load pending contribution: ${pendingError.message}` }, { status: 500 })
+    }
+
+    if (rows.length === 0) {
+      return NextResponse.json({ error: 'Contribution not found' }, { status: 404 })
+    }
+    const contribution = rows[0] as {
       id: string
       pool_id: string
       member_id: string
       amount: number
       currency: string
       incoming_payment_id: string
-    }>(
-      `
-       SELECT
-         toString(pc.id) AS id,
-         toString(pc.pool_id) AS pool_id,
-         toString(pc.member_id) AS member_id,
-         pc.amount,
-         pc.currency,
-         pc.incoming_payment_id
-       FROM pending_contributions pc
-       ANY INNER JOIN members m ON pc.member_id = m.id
-       WHERE pc.id = toUUID({id:String})
-         AND m.user_id = toUUID({user_id:String})
-         AND m.is_active = 1
-       LIMIT 1
-       `,
-      {
-        id: body.contribution_id,
-        user_id: user.id,
-      }
-    )
-
-    if (rows.length === 0) {
-      return NextResponse.json({ error: 'Contribution not found' }, { status: 404 })
     }
-    const contribution = rows[0]
 
     let incomingPaymentId = contribution.incoming_payment_id
 
     if (!incomingPaymentId) {
-      const grantSessions = await queryRows<{
-        payload_json: string
-      }>(
-        `
-        SELECT payload_json
-        FROM payment_grant_sessions
-        WHERE flow = 'incoming'
-          AND reference_id = toUUID({reference_id:String})
-          AND status = 'completed'
-        ORDER BY updated_at DESC
-        LIMIT 1
-        `,
-        { reference_id: contribution.id }
-      )
+      const { data: grantSessions, error: grantError } = await admin
+        .from('payment_grant_sessions')
+        .select('payload_json')
+        .eq('flow', 'incoming')
+        .eq('reference_id', contribution.id)
+        .eq('status', 'completed')
+        .order('updated_at', { ascending: false })
+        .limit(1)
+
+      if (grantError) {
+        return NextResponse.json({ error: `Failed to load grant session: ${grantError.message}` }, { status: 500 })
+      }
 
       if (grantSessions.length > 0) {
         try {
@@ -142,6 +139,23 @@ export async function POST(req: Request) {
       }, { status: 409 })
     }
 
+    const { error: insertContributionError } = await admin
+      .from('contributions')
+      .upsert({
+        id: contribution.id,
+        pool_id: contribution.pool_id,
+        member_id: contribution.member_id,
+        amount: contribution.amount,
+        currency: contribution.currency,
+        incoming_payment_id: incomingPaymentId,
+        contributed_at: new Date().toISOString(),
+        status: 'completed',
+      }, { onConflict: 'id' })
+
+    if (insertContributionError) {
+      return NextResponse.json({ error: `Failed to persist confirmed contribution: ${insertContributionError.message}` }, { status: 500 })
+    }
+
     await insertRows('contributions', [{
       id: contribution.id,
       pool_id: contribution.pool_id,
@@ -152,6 +166,15 @@ export async function POST(req: Request) {
       contributed_at: toClickHouseDateTime(new Date()),
       status: 'completed',
     }])
+
+    const { error: deletePendingError } = await admin
+      .from('pending_contributions')
+      .delete()
+      .eq('id', contribution.id)
+
+    if (deletePendingError) {
+      return NextResponse.json({ error: `Failed to clear pending contribution: ${deletePendingError.message}` }, { status: 500 })
+    }
 
     // Send confirmation email (non-blocking)
     if (body.member_email) {

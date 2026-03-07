@@ -1,7 +1,7 @@
 import { createAuthenticatedClient } from '@interledger/open-payments'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { insertRows } from '@/lib/clickhouse'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { normalizeWalletAddress } from '@/lib/wallet-address'
 
 let cachedClient: Awaited<ReturnType<typeof createAuthenticatedClient>> | null = null
@@ -113,6 +113,28 @@ export interface OutgoingPaymentStatus {
   paymentId: string
   state: 'pending' | 'completed' | 'failed'
   debitAmount: number
+}
+
+async function upsertPaymentStatusCache(input: {
+  paymentId: string
+  paymentType: 'incoming' | 'outgoing'
+  state: 'pending' | 'processing' | 'completed' | 'failed'
+  receivedAmount: number
+}): Promise<void> {
+  const admin = createSupabaseAdminClient()
+  const { error } = await admin
+    .from('payment_status_cache')
+    .upsert({
+      payment_id: input.paymentId,
+      payment_type: input.paymentType,
+      state: input.state,
+      received_amount: input.receivedAmount,
+      last_checked: new Date().toISOString(),
+    }, { onConflict: 'payment_id' })
+
+  if (error) {
+    throw new Error(`Failed to persist payment status cache: ${error.message}`)
+  }
 }
 
 export type CreateIncomingPaymentResult =
@@ -730,12 +752,12 @@ export async function pollIncomingPaymentCompletion({
   for (let i = 0; i < attempts; i += 1) {
     const status = await getIncomingPaymentStatus(paymentId)
     if (status.state === 'completed' && status.receivedAmount >= expectedAmount) {
-      await insertRows('payment_status_cache', [{
-        payment_id: paymentId,
-        payment_type: 'incoming',
+      await upsertPaymentStatusCache({
+        paymentId,
+        paymentType: 'incoming',
         state: 'completed',
-        received_amount: status.receivedAmount,
-      }])
+        receivedAmount: status.receivedAmount,
+      })
       return status
     }
 
@@ -744,12 +766,12 @@ export async function pollIncomingPaymentCompletion({
     }
   }
 
-  await insertRows('payment_status_cache', [{
-    payment_id: paymentId,
-    payment_type: 'incoming',
+  await upsertPaymentStatusCache({
+    paymentId,
+    paymentType: 'incoming',
     state: 'pending',
-    received_amount: 0,
-  }])
+    receivedAmount: 0,
+  })
 
   return {
     paymentId,
@@ -940,12 +962,12 @@ export async function pollOutgoingPaymentCompletion({
   for (let i = 0; i < attempts; i += 1) {
     const status = await getOutgoingPaymentStatus(paymentId)
     if (status.state === 'completed' || status.state === 'failed') {
-      await insertRows('payment_status_cache', [{
-        payment_id: paymentId,
-        payment_type: 'outgoing',
+      await upsertPaymentStatusCache({
+        paymentId,
+        paymentType: 'outgoing',
         state: status.state,
-        received_amount: status.debitAmount,
-      }])
+        receivedAmount: status.debitAmount,
+      })
       return status
     }
 
@@ -954,12 +976,12 @@ export async function pollOutgoingPaymentCompletion({
     }
   }
 
-  await insertRows('payment_status_cache', [{
-    payment_id: paymentId,
-    payment_type: 'outgoing',
+  await upsertPaymentStatusCache({
+    paymentId,
+    paymentType: 'outgoing',
     state: 'pending',
-    received_amount: 0,
-  }])
+    receivedAmount: 0,
+  })
 
   return { paymentId, state: 'pending', debitAmount: 0 }
 }
