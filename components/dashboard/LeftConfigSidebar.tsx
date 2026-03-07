@@ -2,30 +2,7 @@
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-
-const disasterFeed = [
-  {
-    type: 'Earthquake',
-    location: 'Metro Manila, PH',
-    severity: 'M6.4',
-    source: 'USGS',
-    status: 'Triggered',
-  },
-  {
-    type: 'Flood',
-    location: 'Jakarta, ID',
-    severity: 'Severe',
-    source: 'GDACS',
-    status: 'Monitoring',
-  },
-  {
-    type: 'Tropical Storm',
-    location: 'Cebu, PH',
-    severity: 'Category 2',
-    source: 'OWM',
-    status: 'Monitoring',
-  },
-]
+import { DISASTER_PINS } from '@/lib/disaster-pins'
 
 export default function LeftConfigSidebar() {
   return (
@@ -42,20 +19,24 @@ export default function LeftConfigSidebar() {
           <CardDescription>Verified signals from disaster data providers relevant to active pools.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {disasterFeed.map((event) => (
-            <div className="rounded-md border border-white/10 bg-white/5 p-3" key={`${event.type}-${event.location}`}>
+          {DISASTER_PINS.map((pin) => (
+            <div className="rounded-md border border-white/10 bg-white/5 p-3" key={pin.id}>
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold text-white">{event.type}</p>
-                  <p className="text-xs text-white/65">{event.location}</p>
+                  <p className="text-sm font-semibold text-white">{pin.eventType}</p>
+                  <p className="text-xs text-white/65">{pin.location}</p>
                 </div>
-                <Badge className="bg-white/10 text-white" variant="outline">
-                  {event.status}
+                <Badge
+                  className="bg-white/10 text-white"
+                  variant="outline"
+                  style={{ borderColor: pin.status === 'Triggered' ? 'rgba(239,68,68,0.5)' : undefined }}
+                >
+                  {pin.status}
                 </Badge>
               </div>
               <div className="mt-2 flex items-center justify-between text-xs text-white/70">
-                <span>{event.source}</span>
-                <span>{event.severity}</span>
+                <span>{pin.source}</span>
+                <span style={{ color: pin.dotColor }}>{pin.severity}</span>
               </div>
             </div>
           ))}

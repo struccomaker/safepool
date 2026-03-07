@@ -20,7 +20,7 @@ const GLOBAL_DISASTERS = DISASTER_PINS.map((p) => ({
 
 // Initial zoom per clicked country — zooms in on the relevant disaster
 const COUNTRY_ZOOM: Record<string, number> = {
-  PH: 8.6, ID: 8.6, TH: 8.6, NP: 8.6, JP: 8.6, US: 8.6,
+  PH: 10, ID: 10, TH: 10, NP: 10, JP: 10, US: 10,
 }
 
 const DRILLDOWN_STYLE_URL = 'https://tiles.openfreemap.org/styles/dark'
@@ -67,7 +67,26 @@ export default function CountryDrilldownMap({ country, onExit }: CountryDrilldow
   const [ready, setReady] = useState(false)
 
   const initialCenter = useMemo((): [number, number] => {
-    return [country.center.lng, country.center.lat]
+    // Snap to the nearest disaster epicenter — handles cases where country.center
+    // is a geographic centroid rather than the actual epicenter (ISO-A2 vs A3 mismatch).
+    if (GLOBAL_DISASTERS.length === 0) return [country.center.lng, country.center.lat]
+
+    const refLng = country.center.lng
+    const refLat = country.center.lat
+    let nearest = GLOBAL_DISASTERS[0]
+    let nearestDist = Infinity
+
+    for (const d of GLOBAL_DISASTERS) {
+      const dlat = d.coords[1] - refLat
+      const dlng = d.coords[0] - refLng
+      const dist = dlat * dlat + dlng * dlng
+      if (dist < nearestDist) {
+        nearestDist = dist
+        nearest = d
+      }
+    }
+
+    return nearest.coords
   }, [country])
 
   const initialZoom = COUNTRY_ZOOM[country.code.toUpperCase()] ?? 8.6

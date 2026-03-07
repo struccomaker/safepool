@@ -29,6 +29,7 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 - **Split persistence by workload:** Supabase Postgres is source of truth for transactional flows; ClickHouse is reserved for disaster processing and analytics queries.
 - **Input validation on critical writes:** UUID checks, wallet URL validation in payment/member routes.
 - **Fallback-first integration:** Open Payments routes support demo fallback when grants/config unavailable.
+- **Environment-aware auth redirects:** OAuth uses runtime origin for localhost/domain and callback uses forwarded host/proto in deployment to avoid cross-origin bounce issues.
 - **Canonical test wallet addressing:** Use `https://ilp.interledger-test.dev/<walletName>` for `POOL_WALLET_ADDRESS` and member wallet addresses; `https://wallet.interledger-test.dev` is UI-only.
 - **Payment lifecycle hardening:** Incoming/outgoing callbacks, status polling, and recurring cron flows are implemented as first-class backend routes.
 - **Encrypted sensitive payment state:** Stored Open Payments continuation/access tokens are encrypted at rest before persistence.
@@ -41,6 +42,8 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 ### Core
 - **Immersive globe landing/app shell** — Interactive 3D globe with country hover/click and drill-down entry (`components/GlobeScene.tsx`, `components/dashboard/GlobeCenterPanel.tsx`, `components/dashboard/CountryDrilldownMap.tsx`)
 - **Godzilla interaction layer (demo UX)** — Right-click spawn on globe surface, click-to-clear, keyboard controls (`W` forward, `A/D` rotate), optional FPS overlay (`~`), and top-nav mini preview state sync (`components/GlobeScene.tsx`, `components/dashboard/TopNavigationMenu.tsx`)
+- **Auth UX polish** — One-time welcome overlay after successful OAuth callback (`auth_welcome` signal + login intent gating), with click-to-dismiss and fade-out (`components/dashboard/TopNavigationMenu.tsx`, `app/auth/callback/route.ts`)
+- **Modal UX consistency** — Donation modal now closes on backdrop click, matching governance/voting modals (`components/dashboard/TopNavigationMenu.tsx`)
 - **Global emergency fund model** — Single global pool architecture (`lib/global-pool.ts`, `app/api/global/*`)
 - **Contribution and payout backend** — Open Payments contribute/confirm/callback/status + recurring and payout cron flows (`app/api/payments/*`, `app/api/recurring/create/route.ts`, `app/api/cron/*`)
 - **Transactional backend migrated to Supabase** — Users, wallets, members, payment sessions, pending contributions, confirmed contributions, recurring contribution schedules, proposals, votes, and payout status cache run on Supabase tables (`app/api/wallet/me/route.ts`, `app/api/members/join/route.ts`, `app/api/payments/*`, `app/api/recurring/create/route.ts`, `app/api/cron/process-recurring/route.ts`, `app/api/governance/*`)

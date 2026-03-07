@@ -29,6 +29,14 @@ export interface DisasterPin {
   pointSize: number
   /** ISO-3166-1 alpha-2 country code (e.g., 'PH', 'ID', 'NP', 'TH') */
   countryCode: string
+  /** Human-readable disaster category shown in sidebar */
+  eventType: string
+  /** Severity label shown in sidebar (e.g. 'M6.5', 'Severe', 'Category 2') */
+  severity: string
+  /** Data source shown in sidebar (e.g. 'USGS', 'GDACS', 'OWM') */
+  source: string
+  /** Current alert status shown in sidebar */
+  status: 'Triggered' | 'Monitoring' | 'Resolved'
 }
 
 export const DISASTER_PINS: DisasterPin[] = [
@@ -47,6 +55,10 @@ export const DISASTER_PINS: DisasterPin[] = [
     ring3d: { maxR: 4, propagationSpeed: 1.5, repeatPeriod: 900 },
     pointSize: 0.4,
     countryCode: 'PH',
+    eventType: 'Earthquake',
+    severity: 'M6.5',
+    source: 'USGS',
+    status: 'Triggered',
   },
   {
     id: 'jakarta-flood',
@@ -63,6 +75,10 @@ export const DISASTER_PINS: DisasterPin[] = [
     ring3d: { maxR: 3, propagationSpeed: 1.2, repeatPeriod: 1100 },
     pointSize: 0.3,
     countryCode: 'ID',
+    eventType: 'Flood',
+    severity: 'Severe',
+    source: 'GDACS',
+    status: 'Monitoring',
   },
   {
     id: 'kathmandu-eq',
@@ -79,6 +95,10 @@ export const DISASTER_PINS: DisasterPin[] = [
     ring3d: { maxR: 2.5, propagationSpeed: 1, repeatPeriod: 1300 },
     pointSize: 0.25,
     countryCode: 'NP',
+    eventType: 'Earthquake',
+    severity: 'M5.8',
+    source: 'USGS',
+    status: 'Monitoring',
   },
   {
     id: 'bangkok-flood',
@@ -95,6 +115,10 @@ export const DISASTER_PINS: DisasterPin[] = [
     ring3d: { maxR: 3, propagationSpeed: 1.3, repeatPeriod: 1000 },
     pointSize: 0.3,
     countryCode: 'TH',
+    eventType: 'Flood',
+    severity: 'Warning',
+    source: 'GDACS',
+    status: 'Monitoring',
   },
 ]
 
