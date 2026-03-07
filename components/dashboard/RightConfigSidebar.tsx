@@ -1,7 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
-import { useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -18,6 +17,14 @@ interface DonationItem {
   member: string
   amount: number
   receivedAt: number
+  recurring: boolean
+}
+
+interface DonationCreatedEventDetail {
+  walletId: string
+  amount: number
+  recurring: boolean
+  anonymous: boolean
 }
 
 function buildDonation(sequence: number, id: number): DonationItem {
@@ -30,6 +37,7 @@ function buildDonation(sequence: number, id: number): DonationItem {
     member: `${firstName} ${lastName.charAt(0)}.`,
     amount,
     receivedAt: Date.now(),
+    recurring: false,
   }
 }
 
@@ -78,6 +86,47 @@ export default function RightConfigSidebar() {
     }
   }, [])
 
+  useEffect(() => {
+    const handleManualDonation = (event: Event) => {
+      const detail = (event as CustomEvent<DonationCreatedEventDetail>).detail
+      if (!detail) return
+
+      const amount = Number(detail.amount)
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return
+      }
+
+      const trimmedWalletId = detail.walletId.trim()
+      if (!trimmedWalletId) {
+        return
+      }
+
+      const walletLabel =
+        trimmedWalletId.length > 14
+          ? `${trimmedWalletId.slice(0, 6)}...${trimmedWalletId.slice(-4)}`
+          : trimmedWalletId
+
+      const donation: DonationItem = {
+        id: nextIdRef.current,
+        member: detail.anonymous ? '' : `Wallet ${walletLabel}`,
+        amount,
+        receivedAt: Date.now(),
+        recurring: Boolean(detail.recurring),
+      }
+
+      nextIdRef.current += 1
+      setTick((current) => current + 1)
+      setDonations((currentDonations) => [donation, ...currentDonations].slice(0, MAX_DONATIONS))
+      setPoolBalance((currentBalance) => currentBalance + amount)
+    }
+
+    window.addEventListener('safepool:donation-created', handleManualDonation as EventListener)
+
+    return () => {
+      window.removeEventListener('safepool:donation-created', handleManualDonation as EventListener)
+    }
+  }, [])
+
   const livePulse = useMemo(() => (tick % 2 === 0 ? 'bg-green-400' : 'bg-emerald-300'), [tick])
 
   return (
@@ -110,8 +159,8 @@ export default function RightConfigSidebar() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold text-white">{donation.member}</p>
-                    <p className="text-xs text-white/65">{POOL_NAME}</p>
+                    {donation.member ? <p className="text-sm font-semibold text-white">{donation.member}</p> : null}
+                    {donation.recurring ? <p className="mt-1 text-[10px] uppercase tracking-wide text-cyan-300">Recurring</p> : null}
                   </div>
                   <span className="text-sm font-semibold text-green-300">${donation.amount.toFixed(2)}</span>
                 </div>

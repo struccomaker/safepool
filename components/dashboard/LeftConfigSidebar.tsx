@@ -35,7 +35,10 @@ export default function LeftConfigSidebar() {
         <CardHeader>
           <CardTitle className="flex items-center justify-between">
             Disaster Updates
-            <Badge variant="outline">Live Feed</Badge>
+            <Badge className="gap-1 border-0 bg-white/10 text-white" variant="outline">
+              <span className="h-2 w-2 rounded-full bg-green-400" />
+              Live
+            </Badge>
           </CardTitle>
           <CardDescription>Verified signals from disaster data providers relevant to active pools.</CardDescription>
         </CardHeader>
