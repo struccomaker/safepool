@@ -6,73 +6,17 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { GlobeCountrySelection } from '@/components/GlobeScene'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DISASTER_PINS } from '@/lib/disaster-pins'
 
-// ---------------------------------------------------------------------------
-// All global disaster events — mirrors GlobeScene POINTS / RINGS
-// ---------------------------------------------------------------------------
-interface DisasterDef {
-  id:       string
-  label:    string
-  location: string
-  coords:   [number, number]   // [lng, lat]
-  dotColor: string
-  rings:    [number, string, number, number][]  // [radiusDeg, fill, fillOpacity, strokeOpacity]
-}
-
-const GLOBAL_DISASTERS: DisasterDef[] = [
-  {
-    id: 'manila-eq',
-    label: 'M6.5 Earthquake',
-    location: 'Manila, Philippines',
-    coords: [120.98, 14.60],
-    dotColor: '#ef4444',
-    rings: [
-      [0.22, '#ef4444', 0.04, 0.18],
-      [0.13, '#dc2626', 0.08, 0.24],
-      [0.06, '#b91c1c', 0.14, 0.32],
-      [0.02, '#fca5a5', 0.24, 0.45],
-    ],
-  },
-  {
-    id: 'jakarta-flood',
-    label: 'Severe Flood',
-    location: 'Jakarta, Indonesia',
-    coords: [106.85, -6.21],
-    dotColor: '#f97316',
-    rings: [
-      [0.25, '#f97316', 0.04, 0.16],
-      [0.15, '#ea580c', 0.07, 0.22],
-      [0.07, '#c2410c', 0.12, 0.30],
-      [0.02, '#fed7aa', 0.22, 0.42],
-    ],
-  },
-  {
-    id: 'kathmandu-eq',
-    label: 'M5.8 Earthquake',
-    location: 'Kathmandu, Nepal',
-    coords: [85.32, 27.72],
-    dotColor: '#f59e0b',
-    rings: [
-      [0.18, '#f59e0b', 0.04, 0.16],
-      [0.10, '#d97706', 0.08, 0.22],
-      [0.05, '#b45309', 0.14, 0.30],
-      [0.02, '#fde68a', 0.22, 0.40],
-    ],
-  },
-  {
-    id: 'bangkok-flood',
-    label: 'Flood Warning',
-    location: 'Bangkok, Thailand',
-    coords: [100.50, 13.76],
-    dotColor: '#ef4444',
-    rings: [
-      [0.20, '#ef4444', 0.04, 0.16],
-      [0.12, '#dc2626', 0.07, 0.22],
-      [0.06, '#b91c1c', 0.12, 0.28],
-      [0.02, '#fca5a5', 0.20, 0.40],
-    ],
-  },
-]
+// Re-shape shared pins into the format this component expects
+const GLOBAL_DISASTERS = DISASTER_PINS.map((p) => ({
+  id:       p.id,
+  label:    p.label,
+  location: p.location,
+  coords:   p.coords,   // [lng, lat] — GeoJSON order
+  dotColor: p.dotColor,
+  rings:    p.rings2d,
+}))
 
 // Initial zoom per clicked country — zooms in on the relevant disaster
 const COUNTRY_ZOOM: Record<string, number> = {

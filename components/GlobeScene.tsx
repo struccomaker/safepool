@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { GlobeMethods } from 'react-globe.gl'
+import { DISASTER_PINS } from '@/lib/disaster-pins'
 
 const Globe = dynamic(() => import('react-globe.gl'), {
   ssr: false,
@@ -25,19 +26,21 @@ const ARCS = [
   { startLat: 40.71,  startLng: -74.01,  endLat: -6.21,  endLng: 106.85, color: ['#00e5ff', '#06b6d4'] },
 ]
 
-const RINGS = [
-  { lat: 14.60,  lng: 120.98, maxR: 4,   propagationSpeed: 1.5, repeatPeriod: 900,  color: () => '#ef4444' },
-  { lat: -6.21,  lng: 106.85, maxR: 3,   propagationSpeed: 1.2, repeatPeriod: 1100, color: () => '#f97316' },
-  { lat: 27.72,  lng: 85.32,  maxR: 2.5, propagationSpeed: 1,   repeatPeriod: 1300, color: () => '#f59e0b' },
-  { lat: 13.76,  lng: 100.50, maxR: 3,   propagationSpeed: 1.3, repeatPeriod: 1000, color: () => '#ef4444' },
-]
+// Derived from DISASTER_PINS — single source of truth for epicentre coordinates
+const RINGS = DISASTER_PINS.map((p) => ({
+  lat: p.coords[1],
+  lng: p.coords[0],
+  ...p.ring3d,
+  color: () => p.dotColor,
+}))
 
-const POINTS = [
-  { lat: 14.60,  lng: 120.98, size: 0.4,  color: '#ef4444', label: 'M6.5 Earthquake · Manila' },
-  { lat: -6.21,  lng: 106.85, size: 0.3,  color: '#f97316', label: 'Flood · Jakarta' },
-  { lat: 27.72,  lng: 85.32,  size: 0.25, color: '#f59e0b', label: 'Earthquake · Nepal' },
-  { lat: 13.76,  lng: 100.50, size: 0.3,  color: '#ef4444', label: 'Flood · Bangkok' },
-]
+const POINTS = DISASTER_PINS.map((p) => ({
+  lat: p.coords[1],
+  lng: p.coords[0],
+  size: p.pointSize,
+  color: p.dotColor,
+  label: `${p.label} · ${p.location}`,
+}))
 
 type LngLat = [number, number]
 type Ring = LngLat[]
@@ -233,6 +236,8 @@ export default function GlobeScene({
   const [countries, setCountries] = useState<CountryFeature[]>([])
   const [hoveredCountryCode, setHoveredCountryCode] = useState<string | null>(null)
   const [selectedCountryCode, setSelectedCountryCode] = useState<string | null>(activeCountryCode)
+  const [clickRings, setClickRings] = useState<Array<{ id: number; lat: number; lng: number; maxR: number; propagationSpeed: number; repeatPeriod: number; color: () => string }>>([])
+  const clickRingCounterRef = useRef(0)
 
   const monoArcs = useMemo(
     () =>
@@ -360,7 +365,8 @@ export default function GlobeScene({
   }, [hoveredCountryCode, selectedCountryCode, monochrome])
 
   const arcsData = monochrome ? monoArcs : ARCS
-  const ringsData = monochrome ? monoRings : RINGS
+  const baseRings = monochrome ? monoRings : RINGS
+  const ringsData = [...baseRings, ...clickRings]
   const pointsData = monochrome ? monoPoints : POINTS
 
   const pointerEventsFilter = (object: object, data?: object) => {
@@ -398,8 +404,29 @@ export default function GlobeScene({
     }, 700)
   }
 
+
+  const handleWrapperClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!globeRef.current) return
+    const rect = e.currentTarget.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    const globe = globeRef.current as GlobeMethods & {
+      toGlobeCoords: (x: number, y: number) => { lat: number; lng: number } | null
+    }
+    const coords = globe.toGlobeCoords(x, y)
+    if (!coords) return // clicked off the sphere
+    const ringId = ++clickRingCounterRef.current
+    setClickRings((prev) => [
+      ...prev,
+      { id: ringId, lat: coords.lat, lng: coords.lng, maxR: 6, propagationSpeed: 5, repeatPeriod: 99999, color: () => '#ffffff' },
+    ])
+    setTimeout(() => {
+      setClickRings((prev) => prev.filter((r) => r.id !== ringId))
+    }, 1300)
+  }
+
   return (
-    <div className={`relative ${className}`.trim()} ref={wrapperRef}>
+    <div className={`relative ${className}`.trim()} ref={wrapperRef} onClick={handleWrapperClick}>
       <Globe
         ref={globeRef}
         width={size.width}
