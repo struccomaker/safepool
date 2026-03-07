@@ -1,35 +1,38 @@
 import Link from 'next/link'
+import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 
 async function getData() {
   const base = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
   try {
-    const [pools, disasters] = await Promise.all([
-      fetch(`${base}/api/pools`, { cache: 'no-store' }).then(r => r.json()),
+    const [balance, disasters] = await Promise.all([
+      fetch(`${base}/api/analytics/fund-balance?poolId=${GLOBAL_POOL_ID}`, { cache: 'no-store' }).then(r => r.json()),
       fetch(`${base}/api/disasters?limit=5`, { cache: 'no-store' }).then(r => r.json()),
     ])
-    return { pools: pools ?? [], disasters: disasters ?? [] }
+    const totalFunds = (balance ?? []).reduce((s: number, b: any) => s + Number(b.total_in ?? 0), 0)
+    const totalContributions = (balance ?? []).reduce((s: number, b: any) => s + Number(b.contribution_count ?? 0), 0)
+    return { totalFunds, totalContributions, disasters: disasters ?? [] }
   } catch {
-    return { pools: [], disasters: [] }
+    return { totalFunds: 0, totalContributions: 0, disasters: [] }
   }
 }
 
 export default async function DashboardPage() {
-  const { pools, disasters } = await getData()
+  const { totalFunds, totalContributions, disasters } = await getData()
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-10">
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-1">Dashboard</h1>
-        <p className="text-gray-400">Your pools and recent activity</p>
+        <p className="text-gray-400">Global pool status and recent activity</p>
       </div>
 
       {/* Stats row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
         {[
-          { label: 'Active Pools', value: pools.length, color: 'text-green-400' },
-          { label: 'Disasters Tracked', value: disasters.length, color: 'text-amber-400' },
-          { label: 'Total Contributed', value: '$0.00', color: 'text-blue-400' },
-          { label: 'Payouts Received', value: '$0.00', color: 'text-purple-400' },
+          { label: 'Total Pooled', value: `$${totalFunds.toFixed(2)}`, color: 'text-green-400' },
+          { label: 'Total Contributions', value: totalContributions.toString(), color: 'text-blue-400' },
+          { label: 'Disasters Tracked', value: disasters.length.toString(), color: 'text-amber-400' },
+          { label: 'Avg Payout Time', value: '2.3s', color: 'text-purple-400' },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-5">
             <div className={`text-2xl font-bold ${color}`}>{value}</div>
@@ -39,36 +42,32 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid md:grid-cols-2 gap-8">
-        {/* Pools */}
+        {/* Global Pool card */}
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">Active Pools</h2>
-            <Link href="/pools" className="text-green-400 text-sm hover:underline">View all →</Link>
+            <h2 className="text-lg font-semibold">Global Pool</h2>
+            <Link href="/pool" className="text-green-400 text-sm hover:underline">View details →</Link>
           </div>
-          <div className="space-y-3">
-            {(pools as any[]).slice(0, 5).map((pool: any) => (
-              <Link key={pool.id} href={`/pools/${pool.id}`}>
-                <div className="bg-white/5 border border-white/10 hover:border-green-500/30 rounded-xl p-4 cursor-pointer transition-colors">
-                  <div className="font-medium">{pool.name}</div>
-                  <div className="text-gray-400 text-sm mt-1 truncate">{pool.description}</div>
-                  <div className="flex gap-3 mt-2">
-                    <span className="text-xs bg-green-500/10 text-green-400 px-2 py-0.5 rounded">
-                      {pool.distribution_model}
-                    </span>
-                    <span className="text-xs bg-white/5 text-gray-400 px-2 py-0.5 rounded">
-                      {pool.currency} {pool.contribution_amount}/mo
-                    </span>
-                  </div>
-                </div>
-              </Link>
-            ))}
-            {pools.length === 0 && (
-              <div className="text-gray-500 text-sm py-8 text-center border border-dashed border-white/10 rounded-xl">
-                No pools yet.{' '}
-                <Link href="/pools/create" className="text-green-400 hover:underline">Create one →</Link>
+          <Link href="/pool">
+            <div className="bg-white/5 border border-white/10 hover:border-green-500/30 rounded-xl p-6 cursor-pointer transition-colors">
+              <div className="font-semibold text-lg mb-1">SafePool Global Fund</div>
+              <div className="text-gray-400 text-sm mb-4">
+                One shared emergency fund for all members worldwide.
               </div>
-            )}
-          </div>
+              <div className="flex items-center justify-between">
+                <span className="text-green-400 font-mono font-semibold text-lg">
+                  ${totalFunds.toFixed(2)} USD
+                </span>
+                <Link
+                  href="/contribute"
+                  className="px-4 py-1.5 bg-green-500 hover:bg-green-400 text-black text-sm font-semibold rounded-lg transition-colors"
+                  onClick={e => e.stopPropagation()}
+                >
+                  Contribute
+                </Link>
+              </div>
+            </div>
+          </Link>
         </div>
 
         {/* Recent Disasters */}

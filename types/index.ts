@@ -157,36 +157,21 @@ export interface DisasterHeatmapPoint {
 
 // ─── API Request/Response Shapes ──────────────────────────────────────────────
 
-export interface CreatePoolRequest {
-  name: string
-  description: string
-  distribution_model: DistributionModel
-  contribution_frequency: ContributionFrequency
-  contribution_amount: number
-  currency: string
-  trigger_rules: TriggerRules
-  governance_rules: GovernanceRules
-  payout_cap: number
-}
-
-export interface JoinPoolRequest {
-  pool_id: string
+export interface JoinRequest {
   wallet_address: string
   location_lat: number
   location_lon: number
-  household_size: number
+  household_size?: number
 }
 
 export interface ContributeRequest {
-  pool_id: string
-  member_id?: string
   amount: number
   currency: string
   wallet_address?: string
+  member_id?: string
 }
 
 export interface ManualTriggerRequest {
-  pool_id?: string
   disaster_type: DisasterType
   magnitude: number
   location_lat: number

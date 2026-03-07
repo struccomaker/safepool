@@ -2,7 +2,14 @@ import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
 import { createIncomingPayment } from '@/lib/open-payments'
 import client from '@/lib/clickhouse'
-import type { ContributeRequest } from '@/types'
+import { GLOBAL_POOL_ID } from '@/lib/global-pool'
+
+interface ContributeRequest {
+  amount: number
+  currency: string
+  wallet_address?: string
+  member_id?: string
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,7 +17,7 @@ export async function POST(req: NextRequest) {
 
     // Create ILP incoming payment (falls back to demo mode if not configured)
     const payment = await createIncomingPayment({
-      poolId: body.pool_id,
+      poolId: GLOBAL_POOL_ID,
       amount: body.amount,
       currency: body.currency,
     })
@@ -21,7 +28,7 @@ export async function POST(req: NextRequest) {
       table: 'contributions',
       values: [{
         id: contributionId,
-        pool_id: body.pool_id,
+        pool_id: GLOBAL_POOL_ID,
         member_id: body.member_id ?? 'guest',
         amount: body.amount,
         currency: body.currency,

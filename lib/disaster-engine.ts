@@ -1,6 +1,7 @@
 import client from '@/lib/clickhouse'
 import { processPayouts } from '@/lib/payout-engine'
-import type { Pool, Member, DisasterEvent, TriggerRules } from '@/types'
+import { GLOBAL_POOL_ID, GLOBAL_POOL_CONFIG } from '@/lib/global-pool'
+import type { Pool, Member, DisasterEvent } from '@/types'
 
 /** Haversine formula — returns distance in km between two lat/lon points */
 function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -13,25 +14,8 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
-/** Check if a disaster event triggers a pool's rules. Returns affected members or null. */
-function checkTrigger(pool: Pool, disaster: DisasterEvent, members: Member[]): Member[] | null {
-  const rules = JSON.parse(pool.trigger_rules) as TriggerRules
-
-  if (!rules.disasterTypes.includes(disaster.disaster_type)) return null
-  if (disaster.magnitude < rules.minMagnitude) return null
-
-  const affected = members.filter(
-    (m) =>
-      m.is_active === 1 &&
-      haversineDistance(m.location_lat, m.location_lon, disaster.location_lat, disaster.location_lon) <=
-        rules.radius_km
-  )
-
-  return affected.length > 0 ? affected : null
-}
-
 /**
- * Evaluates all active pools against a disaster event and triggers payouts.
+ * Evaluates the global pool against a disaster event and triggers payouts.
  * Returns the total number of payouts initiated.
  */
 export async function evaluateTriggers(disasterEventId: string): Promise<number> {
@@ -44,46 +28,62 @@ export async function evaluateTriggers(disasterEventId: string): Promise<number>
   const [disaster] = (await eventResult.json()) as DisasterEvent[]
   if (!disaster) return 0
 
-  // Load all active pools
-  const poolsResult = await client.query({
-    query: `SELECT * FROM pools WHERE is_active = 1`,
+  const rules = GLOBAL_POOL_CONFIG.trigger_rules
+
+  // Check disaster type and magnitude against global pool config
+  if (!rules.disasterTypes.includes(disaster.disaster_type)) return 0
+  if (disaster.magnitude < rules.minMagnitude) return 0
+
+  // Load all active members of the global pool
+  const membersResult = await client.query({
+    query: `SELECT * FROM members WHERE pool_id = {pool_id:String} AND is_active = 1`,
+    query_params: { pool_id: GLOBAL_POOL_ID },
     format: 'JSONEachRow',
   })
-  const pools = (await poolsResult.json()) as Pool[]
+  const members = (await membersResult.json()) as Member[]
 
-  let totalPayouts = 0
+  // Filter to members within the disaster radius
+  const affectedMembers = members.filter(
+    (m) =>
+      m.is_active === 1 &&
+      haversineDistance(m.location_lat, m.location_lon, disaster.location_lat, disaster.location_lon) <=
+        rules.radius_km
+  )
 
-  for (const pool of pools) {
-    // Load pool members
-    const membersResult = await client.query({
-      query: `SELECT * FROM members WHERE pool_id = {pool_id:String} AND is_active = 1`,
-      query_params: { pool_id: pool.id },
-      format: 'JSONEachRow',
-    })
-    const members = (await membersResult.json()) as Member[]
+  if (affectedMembers.length === 0) return 0
 
-    const affectedMembers = checkTrigger(pool, disaster, members)
-    if (!affectedMembers) continue
+  // Get global pool balance
+  const balResult = await client.query({
+    query: `SELECT sum(total_in) AS total FROM pool_balances WHERE pool_id = {pool_id:String}`,
+    query_params: { pool_id: GLOBAL_POOL_ID },
+    format: 'JSONEachRow',
+  })
+  const [balRow] = (await balResult.json()) as { total: number }[]
+  const totalFunds = balRow?.total ?? 0
 
-    // Get pool balance
-    const balResult = await client.query({
-      query: `SELECT sum(total_in) AS total FROM pool_balances WHERE pool_id = {pool_id:String}`,
-      query_params: { pool_id: pool.id },
-      format: 'JSONEachRow',
-    })
-    const [balRow] = (await balResult.json()) as { total: number }[]
-    const totalFunds = balRow?.total ?? 0
+  if (totalFunds <= 0) return 0
 
-    if (totalFunds <= 0) continue
-
-    const count = await processPayouts({
-      pool,
-      disaster,
-      affectedMembers,
-      totalFunds,
-    })
-    totalPayouts += count
+  // Build a Pool-shaped object from global config for the payout engine
+  const globalPool: Pool = {
+    id: GLOBAL_POOL_ID,
+    name: GLOBAL_POOL_CONFIG.name,
+    description: GLOBAL_POOL_CONFIG.description,
+    created_by: '',
+    distribution_model: GLOBAL_POOL_CONFIG.distribution_model,
+    contribution_frequency: 'monthly',
+    contribution_amount: 0,
+    currency: GLOBAL_POOL_CONFIG.currency,
+    trigger_rules: JSON.stringify(rules),
+    governance_rules: JSON.stringify({ quorum_pct: 50, vote_threshold: 60 }),
+    payout_cap: GLOBAL_POOL_CONFIG.payout_cap,
+    created_at: '',
+    is_active: 1,
   }
 
-  return totalPayouts
+  return processPayouts({
+    pool: globalPool,
+    disaster,
+    affectedMembers,
+    totalFunds,
+  })
 }

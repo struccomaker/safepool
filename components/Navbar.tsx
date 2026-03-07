@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 
 const NAV_LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
-  { href: '/pools', label: 'Pools' },
+  { href: '/pool', label: 'Pool' },
   { href: '/disasters', label: 'Disasters' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/profile', label: 'Profile' },
@@ -39,10 +39,10 @@ export default function Navbar() {
         </div>
 
         <Link
-          href="/pools/create"
+          href="/contribute"
           className="px-4 py-1.5 bg-green-500 hover:bg-green-400 text-black text-sm font-semibold rounded-lg transition-colors"
         >
-          + Pool
+          Contribute
         </Link>
       </div>
     </nav>

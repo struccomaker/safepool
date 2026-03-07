@@ -27,34 +27,34 @@ export default function LandingPage() {
         </h1>
 
         <p className="text-xl md:text-2xl text-gray-300 max-w-2xl mb-3 font-light">
-          Community-powered emergency funds that pay out automatically when disaster strikes.
+          One global emergency fund that pays out automatically when disaster strikes.
         </p>
 
         <p className="text-gray-500 max-w-xl mb-10 text-sm">
-          Pool micro-contributions with your community → disaster detected by USGS/GDACS → Interledger sends payments instantly to every affected member.
+          Pool micro-contributions with people worldwide → disaster detected by USGS/GDACS → Interledger sends payments instantly to every affected member.
         </p>
 
         <div className="flex flex-wrap gap-4 justify-center">
           <Link
-            href="/pools"
+            href="/contribute"
             className="bg-green-500 hover:bg-green-400 text-black font-bold px-8 py-3 rounded-lg text-lg transition-colors"
           >
-            Browse Pools
+            Contribute Now
           </Link>
           <Link
-            href="/pools/create"
+            href="/pool"
             className="border border-white/20 hover:border-green-500/50 text-white hover:text-green-400 font-semibold px-8 py-3 rounded-lg text-lg transition-colors bg-white/5"
           >
-            Start a Pool
+            View Pool
           </Link>
         </div>
 
         {/* Live stats row */}
         <div className="mt-16 flex flex-wrap gap-8 justify-center">
           {[
-            { label: 'Active Pools', value: '12' },
             { label: 'Total Contributors', value: '847' },
             { label: 'Funds Protected', value: '$24,300' },
+            { label: 'Disasters Monitored', value: '12' },
             { label: 'Avg Payout Time', value: '2.3s' },
           ].map(({ label, value }) => (
             <div key={label} className="text-center">

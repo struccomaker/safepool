@@ -2,7 +2,14 @@ import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 import client from '@/lib/clickhouse'
-import type { JoinPoolRequest } from '@/types'
+import { GLOBAL_POOL_ID } from '@/lib/global-pool'
+
+interface JoinRequest {
+  wallet_address: string
+  location_lat: number
+  location_lon: number
+  household_size?: number
+}
 
 function isValidWalletAddress(url: string): boolean {
   try {
@@ -18,7 +25,7 @@ export async function POST(req: NextRequest) {
     const token = await getToken({ req })
     if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const body = await req.json() as JoinPoolRequest
+    const body = await req.json() as JoinRequest
 
     if (!isValidWalletAddress(body.wallet_address)) {
       return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 })
@@ -30,7 +37,7 @@ export async function POST(req: NextRequest) {
       table: 'members',
       values: [{
         id,
-        pool_id: body.pool_id,
+        pool_id: GLOBAL_POOL_ID,
         user_id: token.id as string,
         wallet_address: body.wallet_address,
         location_lat: body.location_lat,

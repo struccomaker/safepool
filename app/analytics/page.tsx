@@ -30,7 +30,7 @@ export default function AnalyticsPage() {
         {[
           { label: 'Total Funds Pooled', value: `$${balances.reduce((s, b) => s + Number(b.total_in ?? 0), 0).toFixed(2)}` },
           { label: 'Total Contributions', value: balances.reduce((s, b) => s + Number(b.contribution_count ?? 0), 0).toString() },
-          { label: 'Pools Tracked', value: balances.length.toString() },
+          { label: 'Members', value: '—' },
         ].map(({ label, value }) => (
           <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-5 text-center">
             <div className="text-2xl font-bold text-green-400">{value}</div>
@@ -56,7 +56,7 @@ export default function AnalyticsPage() {
 
         {/* Pool balances pie */}
         <div className="bg-white/5 border border-white/10 rounded-xl p-5">
-          <h3 className="text-sm text-gray-400 mb-4 font-medium">Pool Balances</h3>
+          <h3 className="text-sm text-gray-400 mb-4 font-medium">Monthly Fund Balance</h3>
           {balances.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
