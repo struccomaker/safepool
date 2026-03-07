@@ -12,7 +12,7 @@ export default function GovernanceVote({ poolId }: GovernanceVoteProps) {
   const [voting, setVoting] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`/api/governance/proposals/${poolId}`)
+    fetch('/api/global/governance/proposals')
       .then((r) => r.json())
       .then((data: Proposal[]) => setProposals(data))
       .catch(() => {})
@@ -27,7 +27,7 @@ export default function GovernanceVote({ poolId }: GovernanceVoteProps) {
         body: JSON.stringify({ proposal_id: proposalId, pool_id: poolId, vote }),
       })
       // Refresh
-      const res = await fetch(`/api/governance/proposals/${poolId}`)
+      const res = await fetch('/api/global/governance/proposals')
       setProposals(await res.json())
     } finally {
       setVoting(null)

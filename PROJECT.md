@@ -45,48 +45,52 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 - **Analytics dashboard** — Fund balance, contribution trends, payout stats (`app/analytics/page.tsx`, `app/api/analytics/*`)
 - **Live disaster feed** — List + Leaflet map + click-through to city drill-down (`app/disasters/page.tsx`)
 - **SSE contribution stream** — Backend endpoint for live ticker (`app/api/sse/contributions/route.ts`)
-- **Auth flow** — Supabase Google sign-in + callback (`app/login/page.tsx`, `app/auth/callback/route.ts`)
+- **Auth flow** — Supabase Google sign-in from top navigation + callback (`components/dashboard/TopNavigationMenu.tsx`, `app/auth/callback/route.ts`)
 
 ---
 
-## Conflicted / Overlapping Features
+## Canonical Routes
 
-### 1. Auth Strategy Conflict — NextAuth vs Supabase
-- **Docs/PLAN describe:** NextAuth.js with email/magic link
-- **Runtime uses:** Supabase Auth with Google OAuth
-- **Impact:** Onboarding confusion, mismatched setup instructions
+The app is now **single-pool + single-map-first**. The only map entry page is the root route (`/`).
 
-### 2. Product Model Conflict — Multi-pool vs Single Global Pool
-- **Docs describe:** Multi-pool CRUD (create pools, browse, manage)
-- **Runtime uses:** Single global pool with redirects (`/pools/*` → `/pool`)
-- **Impact:** Feature expectations mismatch for judges/demo
+### App Routes
 
-### 3. Map Stack Overlap — Leaflet + MapLibre
-- **Disaster map:** Uses Leaflet (`components/DisasterMapInner.tsx`)
-- **City drill-down:** Uses MapLibre (`components/dashboard/MapcnDrilldownMap.tsx`)
-- **Impact:** Extra bundle weight, duplicated paradigms, potential styling inconsistency
+- `/` — Main map page (primary and only map entry)
+- `/pool` — Global fund overview
+- `/contribute` — Contribution flow (protected)
+- `/governance` — Proposals and voting
+- `/members` — Global member list
+- `/profile` — User profile (protected)
+- `/auth/callback` — OAuth callback handler
+- `/auth/popup-complete` — OAuth popup completion
 
-### 4. Ticker Feature Partially Integrated
-- **Component exists:** `LedTicker.tsx` + SSE route (`app/api/sse/contributions/route.ts`)
-- **Not mounted:** Not currently in `app/layout.tsx`
-- **Impact:** README claims may overstate visible realtime UI
+### API Routes
 
-### 5. Route-Protection Mismatch
-- **Proxy protects:** `/pools/:id/contribute`
-- **Active flow uses:** `/contribute` (global route)
-- **Impact:** Intended auth gate may not apply to primary contribution page
-
-### 6. Home Nav Anchor Mismatch
-- **Navbar links:** `/#home`, `/#stats`, `/#how-it-works`, etc.
-- **Current page:** `app/page.tsx` has no section IDs
-- **Impact:** Broken in-page navigation on home view
+- `/api/global/pool` — Global pool details
+- `/api/global/members` — Global pool members
+- `/api/global/governance/proposals` — Global proposals list
+- `/api/global/payments/history` — Global contribution history
+- `/api/global/disasters/check` — Recent payout/disaster trigger check
+- `/api/payments/contribute` — Create Open Payments incoming payment
+- `/api/payments/confirm` — Confirm contribution + persist + email
+- `/api/members/join` — Join global pool
+- `/api/governance/propose` — Submit proposal
+- `/api/governance/vote` — Cast vote
+- `/api/disasters` — List disaster events
+- `/api/disasters/manual-trigger` — Manual disaster simulation
+- `/api/cron/poll-disasters` — Poll disaster providers
+- `/api/cron/process-payouts` — Run payout processor
+- `/api/analytics/fund-balance` — Fund balance analytics
+- `/api/analytics/contribution-trend` — Contribution trend analytics
+- `/api/analytics/payout-stats` — Payout statistics
+- `/api/analytics/disaster-map` — Disaster geospatial analytics
+- `/api/sse/contributions` — Live contribution SSE stream
 
 ---
 
-## Notes for Team Alignment
+## Team Alignment Decisions (Current)
 
-- If demo narrative is **global-fund-first**, update docs to remove multi-pool language
-- If narrative remains **multi-pool**, remove redirect-based singleton flow and restore full pool pages
-- Pick one auth narrative in docs (Supabase is currently implemented)
-- Decide whether ticker is required for demo and wire into `app/layout.tsx` if yes
-- Keep both map engines only if dual-map story is intentional; otherwise consolidate
+- Demo narrative: **global-fund-first**
+- Auth narrative: **Supabase Google sign-in**
+- Realtime claim: **enabled** (ticker mounted + SSE route active)
+- Map strategy: **root-only map entry at `/`**

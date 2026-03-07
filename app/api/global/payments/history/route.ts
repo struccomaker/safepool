@@ -2,12 +2,8 @@ import { NextResponse } from 'next/server'
 import client from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 
-export async function GET(_req: Request, context: { params: Promise<{ poolId: string }> }) {
+export async function GET() {
   try {
-    const { poolId } = await context.params
-    // 'all' returns full history; any other value is treated as the global pool
-    const pool_id = poolId === 'all' ? GLOBAL_POOL_ID : poolId
-
     const result = await client.query({
       query: `
         SELECT id, pool_id, member_id, amount, currency,
@@ -17,7 +13,7 @@ export async function GET(_req: Request, context: { params: Promise<{ poolId: st
         ORDER BY contributed_at DESC
         LIMIT 100
       `,
-      query_params: { pool_id },
+      query_params: { pool_id: GLOBAL_POOL_ID },
       format: 'JSONEachRow',
     })
     const data = await result.json()

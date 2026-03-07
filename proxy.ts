@@ -6,18 +6,13 @@ export async function proxy(request: NextRequest) {
   const { response, user } = await updateSupabaseSession(request)
 
   const isProtectedRoute = [
-    '/dashboard',
-    '/pools/create',
+    '/contribute',
     '/profile',
   ].some(path => request.nextUrl.pathname.startsWith(path))
 
-  const isContributeRoute = /^\/pools\/[^/]+\/contribute$/.test(
-    request.nextUrl.pathname
-  )
-
-  if ((isProtectedRoute || isContributeRoute) && !user) {
+  if (isProtectedRoute && !user) {
     const callbackUrl = `${request.nextUrl.pathname}${request.nextUrl.search}`
-    const loginUrl = new URL('/login', request.url)
+    const loginUrl = new URL('/', request.url)
     loginUrl.searchParams.set('callbackUrl', callbackUrl)
     return NextResponse.redirect(loginUrl)
   }
@@ -26,5 +21,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/pools/create', '/pools/:id/contribute', '/profile/:path*'],
+  matcher: ['/contribute', '/profile/:path*'],
 }
