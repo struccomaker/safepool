@@ -1067,19 +1067,25 @@ const grant = await client.grant.request(
     { url: wallet.authServer },
     {
       access_token: {
-        access: [{
-          type: 'outgoing-payment',
-          actions: ['read', 'create'],
-          identifier: wallet.id,
-          limits: {
-            debitAmount: {
-              value: toMinorUnits(amount, wallet.assetScale),
-              assetCode: wallet.assetCode,
-              assetScale: wallet.assetScale,
-            },
-            interval,
+        access: [
+          {
+            type: 'quote',
+            actions: ['create', 'read'],
           },
-        }],
+          {
+            type: 'outgoing-payment',
+            actions: ['read', 'create'],
+            identifier: wallet.id,
+            limits: {
+              debitAmount: {
+                value: toMinorUnits(amount, wallet.assetScale),
+                assetCode: wallet.assetCode,
+                assetScale: wallet.assetScale,
+              },
+              interval,
+            },
+          },
+        ],
       },
       interact: {
         start: ['redirect'],
