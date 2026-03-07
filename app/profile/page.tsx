@@ -4,7 +4,8 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 async function getHistory(): Promise<Contribution[]> {
   try {
-    const res = await fetch(`${process.env.NEXTAUTH_URL}/api/payments/history/all`, { cache: 'no-store' })
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
+    const res = await fetch(`${baseUrl}/api/payments/history/all`, { cache: 'no-store' })
     if (!res.ok) throw new Error('Failed')
     return (await res.json()) as Contribution[]
   } catch {

@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS users (
   email String,
   name String,
   created_at DateTime DEFAULT now()
-) ENGINE = MergeTree() ORDER BY (id);
+) ENGINE = MergeTree() ORDER BY (email, id);
 
 CREATE TABLE IF NOT EXISTS members (
   id UUID DEFAULT generateUUIDv4(),

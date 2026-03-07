@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
-import { queryRows, runCommand, toClickHouseDateTime } from '@/lib/clickhouse'
+import { insertRows, queryRows, toClickHouseDateTime } from '@/lib/clickhouse'
 import { sendContributionEmail } from '@/lib/email'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
 interface ConfirmBody {
   contribution_id: string
@@ -11,6 +13,18 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 
 export async function POST(req: Request) {
   try {
+    const supabase = await createSupabaseServerClient()
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    await syncSupabaseUserToClickHouse(user)
+
     const body = await req.json() as ConfirmBody
 
     if (!body.contribution_id) {
@@ -22,8 +36,19 @@ export async function POST(req: Request) {
     }
 
     const completedRows = await queryRows<{ id: string }>(
-      `SELECT id FROM contributions WHERE id = {id:String} LIMIT 1`,
-      { id: body.contribution_id }
+      `
+      SELECT toString(c.id) AS id
+      FROM contributions c
+      ANY INNER JOIN members m ON c.member_id = m.id
+      WHERE c.id = toUUID({id:String})
+        AND m.user_id = toUUID({user_id:String})
+        AND m.is_active = 1
+      LIMIT 1
+      `,
+      {
+        id: body.contribution_id,
+        user_id: user.id,
+      }
     )
 
     if (completedRows.length > 0) {
@@ -39,11 +64,25 @@ export async function POST(req: Request) {
       currency: string
       incoming_payment_id: string
     }>(
-      `SELECT id, pool_id, member_id, amount, currency, incoming_payment_id
-       FROM pending_contributions
-       WHERE id = {id:String}
-       LIMIT 1`,
-      { id: body.contribution_id }
+      `
+       SELECT
+         toString(pc.id) AS id,
+         toString(pc.pool_id) AS pool_id,
+         toString(pc.member_id) AS member_id,
+         pc.amount,
+         pc.currency,
+         pc.incoming_payment_id
+       FROM pending_contributions pc
+       ANY INNER JOIN members m ON pc.member_id = m.id
+       WHERE pc.id = toUUID({id:String})
+         AND m.user_id = toUUID({user_id:String})
+         AND m.is_active = 1
+       LIMIT 1
+       `,
+      {
+        id: body.contribution_id,
+        user_id: user.id,
+      }
     )
 
     if (rows.length === 0) {
@@ -51,35 +90,16 @@ export async function POST(req: Request) {
     }
     const contribution = rows[0]
 
-    const contributedAt = toClickHouseDateTime(new Date())
-
-    await runCommand(
-      `
-      INSERT INTO contributions
-        (id, pool_id, member_id, amount, currency, incoming_payment_id, contributed_at, status)
-      SELECT
-        toUUID({id:String}),
-        toUUID({pool_id:String}),
-        toUUID({member_id:String}),
-        toDecimal64({amount:Float64}, 6),
-        {currency:String},
-        {incoming_payment_id:String},
-        parseDateTimeBestEffort({contributed_at:String}),
-        'completed'
-      WHERE NOT EXISTS (
-        SELECT 1 FROM contributions WHERE id = toUUID({id:String})
-      )
-      `,
-      {
-        id: contribution.id,
-        pool_id: contribution.pool_id,
-        member_id: contribution.member_id,
-        amount: contribution.amount,
-        currency: contribution.currency,
-        incoming_payment_id: contribution.incoming_payment_id,
-        contributed_at: contributedAt,
-      }
-    )
+    await insertRows('contributions', [{
+      id: contribution.id,
+      pool_id: contribution.pool_id,
+      member_id: contribution.member_id,
+      amount: contribution.amount,
+      currency: contribution.currency,
+      incoming_payment_id: contribution.incoming_payment_id,
+      contributed_at: toClickHouseDateTime(new Date()),
+      status: 'completed',
+    }])
 
     // Send confirmation email (non-blocking)
     if (body.member_email) {

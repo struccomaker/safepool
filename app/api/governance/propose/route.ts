@@ -3,6 +3,7 @@ import { type NextRequest } from 'next/server'
 import client from '@/lib/clickhouse'
 import type { ProposeRequest } from '@/types'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +16,8 @@ export async function POST(req: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    await syncSupabaseUserToClickHouse(user)
 
     const body = await req.json() as ProposeRequest
 
