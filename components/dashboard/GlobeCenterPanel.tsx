@@ -8,6 +8,10 @@ import { Progress } from '@/components/ui/progress'
 
 const GlobeScene = lazy(() => import('@/components/GlobeScene'))
 
+interface GlobeCenterPanelProps {
+  onDrilldownChange?: (isOpen: boolean) => void
+}
+
 function GlobeLoadingFallback() {
   const [progress, setProgress] = useState(12)
 
@@ -32,10 +36,14 @@ function GlobeLoadingFallback() {
   )
 }
 
-export default function GlobeCenterPanel() {
+export default function GlobeCenterPanel({ onDrilldownChange }: GlobeCenterPanelProps) {
   const [selectedCountry, setSelectedCountry] = useState<GlobeCountrySelection | null>(null)
 
   const isDrilldownOpen = selectedCountry !== null
+
+  useEffect(() => {
+    onDrilldownChange?.(isDrilldownOpen)
+  }, [isDrilldownOpen, onDrilldownChange])
 
   return (
     <section className="absolute inset-0 overflow-hidden bg-black">
@@ -45,7 +53,7 @@ export default function GlobeCenterPanel() {
           {isDrilldownOpen ? 'City Drill-down · Damage Heatmap' : 'Emergency Response Globe · Hover + Click Countries'}
         </Badge>
       </div>
-      <div className="h-full w-full lg:px-[22rem]">
+      <div className="h-full w-full">
         {isDrilldownOpen && selectedCountry ? (
           <MapcnDrilldownMap country={selectedCountry} onExit={() => setSelectedCountry(null)} />
         ) : (
