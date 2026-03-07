@@ -223,6 +223,13 @@ export interface ContinueRecurringGrantResult {
   expiresIn?: number
 }
 
+export interface PoolWalletMetadata {
+  walletAddress: string
+  walletId: string
+  assetCode: string
+  assetScale: number
+}
+
 function getRequiredEnv(name: string): string {
   const value = process.env[name]
   if (!value) {
@@ -466,6 +473,19 @@ async function getClient() {
   })
 
   return cachedClient
+}
+
+export async function getPoolWalletMetadata(): Promise<PoolWalletMetadata> {
+  const client = await getClient()
+  const walletAddress = normalizeWalletAddress(getRequiredEnv('POOL_WALLET_ADDRESS'))
+  const wallet = await client.walletAddress.get({ url: walletAddress })
+
+  return {
+    walletAddress,
+    walletId: wallet.id,
+    assetCode: wallet.assetCode,
+    assetScale: wallet.assetScale,
+  }
 }
 
 async function fetchJson(url: string): Promise<unknown> {
