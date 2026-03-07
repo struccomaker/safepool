@@ -1,0 +1,74 @@
+[
+  {
+    "proposal_id": "d8ff8672-2ddb-488e-8412-ff4681f678cc",
+    "parameter": "safety_cap",
+    "proposed_value": 0.24,
+    "current_value": 0.1,
+    "proposed_by": "d5e69595-6bc6-4701-b38a-0420ac124dbe",
+    "status": "open",
+    "quorum_required": 14031.66,
+    "pool_total_sgd": 70158.31,
+    "submitted_at": "2026-03-01 03:00:00",
+    "closed_at": "2026-03-02 03:00:00"
+  },
+  {
+    "proposal_id": "d8a801d8-7376-483a-8346-c81c9dd2c82d",
+    "parameter": "safety_cap",
+    "proposed_value": 0.13,
+    "current_value": 0.1,
+    "proposed_by": "9edbb2bc-7856-4f43-b07e-e433e9df1de0",
+    "status": "open",
+    "quorum_required": 14031.66,
+    "pool_total_sgd": 70158.31,
+    "submitted_at": "2026-03-02 07:00:00",
+    "closed_at": "2026-03-03 07:00:00"
+  },
+  {
+    "proposal_id": "197c1714-d685-4294-a246-ae9c2910c586",
+    "parameter": "trigger_sensitivity",
+    "proposed_value": 7.09,
+    "current_value": 6.0,
+    "proposed_by": "d5e69595-6bc6-4701-b38a-0420ac124dbe",
+    "status": "open",
+    "quorum_required": 14031.66,
+    "pool_total_sgd": 70158.31,
+    "submitted_at": "2026-03-03 00:00:00",
+    "closed_at": "2026-03-04 00:00:00"
+  },
+  {
+    "proposal_id": "20a21f1b-1edd-4929-b7c4-0fceee95b3a2",
+    "parameter": "trigger_sensitivity",
+    "proposed_value": 5.64,
+    "current_value": 6.0,
+    "proposed_by": "7d6670b2-3261-4d28-8141-e5797fa4685a",
+    "status": "open",
+    "quorum_required": 14031.66,
+    "pool_total_sgd": 70158.31,
+    "submitted_at": "2026-03-04 06:00:00",
+    "closed_at": "2026-03-05 06:00:00"
+  },
+  {
+    "proposal_id": "4e714eef-6741-4c5a-b06f-c04e1ac133e3",
+    "parameter": "impact_radius",
+    "proposed_value": 140.45,
+    "current_value": 50.0,
+    "proposed_by": "dae70b5d-41ac-4cbb-ade0-621fccbe711b",
+    "status": "open",
+    "quorum_required": 14031.66,
+    "pool_total_sgd": 70158.31,
+    "submitted_at": "2026-03-05 07:00:00",
+    "closed_at": "2026-03-06 07:00:00"
+  },
+  {
+    "proposal_id": "a4d64142-024c-4181-9956-7ff540cc2720",
+    "parameter": "impact_radius",
+    "proposed_value": 74.99,
+    "current_value": 50.0,
+    "proposed_by": "045e4146-a1ac-4a82-b777-df435ddc8ae4",
+    "status": "open",
+    "quorum_required": 14031.66,
+    "pool_total_sgd": 70158.31,
+    "submitted_at": "2026-03-06 08:00:00",
+    "closed_at": "2026-03-07 08:00:00"
+  }
+]
