@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import { evaluateTriggers } from '@/lib/disaster-engine'
-import client from '@/lib/clickhouse'
+import { insertRows, queryRows } from '@/lib/clickhouse'
 
 export async function GET(req: Request) {
   const authHeader = req.headers.get('authorization')
@@ -12,27 +12,74 @@ export async function GET(req: Request) {
 
   try {
     // Find all unprocessed disaster events
-    const result = await client.query({
-      query: `
-        SELECT id FROM disaster_events
-        WHERE processed = 0
-        ORDER BY occurred_at DESC
-        LIMIT 20
-      `,
-      format: 'JSONEachRow',
-    })
-    const events = (await result.json()) as { id: string }[]
+    const events = await queryRows<{ id: string }>(`
+      SELECT d.id
+      FROM disaster_events d
+      LEFT JOIN (
+        SELECT
+          event_id,
+          toString(argMax(status, processed_at)) AS latest_status,
+          max(processed_at) AS latest_at
+        FROM disaster_event_processing
+        GROUP BY event_id
+      ) dep ON d.id = dep.event_id
+      WHERE dep.latest_status = ''
+         OR dep.latest_status = 'failed'
+         OR (dep.latest_status = 'processing' AND dep.latest_at < now() - INTERVAL 5 MINUTE)
+      ORDER BY d.occurred_at DESC
+      LIMIT 20
+    `)
 
     let totalPayouts = 0
     for (const event of events) {
-      const count = await evaluateTriggers(event.id)
-      totalPayouts += count
+      const claimToken = crypto.randomUUID()
 
-      // Mark as processed
-      await client.query({
-        query: `ALTER TABLE disaster_events UPDATE processed = 1 WHERE id = {id:String}`,
-        query_params: { id: event.id },
-      })
+      await insertRows('disaster_event_processing', [{
+        event_id: event.id,
+        claim_token: claimToken,
+        status: 'processing',
+        payouts_count: 0,
+        failure_reason: '',
+      }])
+
+      const lockRows = await queryRows<{ claim_token: string }>(
+        `
+        SELECT toString(argMax(claim_token, processed_at)) AS claim_token
+        FROM disaster_event_processing
+        WHERE event_id = toUUID({id:String})
+        GROUP BY event_id
+        `,
+        { id: event.id }
+      )
+
+      if (lockRows.length > 0 && lockRows[0].claim_token !== claimToken) {
+        continue
+      }
+
+      try {
+        const count = await evaluateTriggers(event.id)
+        totalPayouts += count
+
+        await insertRows('disaster_event_processing', [{
+          event_id: event.id,
+          claim_token: claimToken,
+          status: 'completed',
+          payouts_count: count,
+          failure_reason: '',
+        }])
+      } catch (eventErr: unknown) {
+        const failureReason = eventErr instanceof Error ? eventErr.message : 'Unknown payout processing error'
+
+        await insertRows('disaster_event_processing', [{
+          event_id: event.id,
+          claim_token: claimToken,
+          status: 'failed',
+          payouts_count: 0,
+          failure_reason: failureReason,
+        }])
+
+        throw eventErr
+      }
     }
 
     return NextResponse.json({ processed: events.length, payouts: totalPayouts })

@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import client from '@/lib/clickhouse'
 
-export async function GET(_req: Request, { params }: { params: { poolId: string } }) {
+export async function GET(_req: Request, context: { params: Promise<{ poolId: string }> }) {
   try {
+    const { poolId } = await context.params
+
     // Check if any payouts were sent for this pool in the last hour
     const result = await client.query({
       query: `
@@ -12,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: { poolId: string 
           AND payout_at >= now() - INTERVAL 1 HOUR
           AND status = 'completed'
       `,
-      query_params: { pool_id: params.poolId },
+      query_params: { pool_id: poolId },
       format: 'JSONEachRow',
     })
     const [row] = (await result.json()) as { count: number; last_event_id: string }[]

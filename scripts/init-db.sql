@@ -51,6 +51,18 @@ CREATE TABLE IF NOT EXISTS contributions (
   PARTITION BY toYYYYMM(contributed_at)
   ORDER BY (pool_id, contributed_at, member_id);
 
+CREATE TABLE IF NOT EXISTS pending_contributions (
+  id UUID,
+  pool_id UUID,
+  member_id UUID,
+  amount Decimal(18,6),
+  currency LowCardinality(String),
+  incoming_payment_id String,
+  created_at DateTime DEFAULT now()
+) ENGINE = MergeTree()
+  PARTITION BY toYYYYMM(created_at)
+  ORDER BY (pool_id, created_at, member_id, id);
+
 CREATE TABLE IF NOT EXISTS disaster_events (
   id UUID DEFAULT generateUUIDv4(),
   source LowCardinality(String),
@@ -83,6 +95,17 @@ CREATE TABLE IF NOT EXISTS payouts (
 ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(payout_at)
   ORDER BY (pool_id, payout_at);
+
+CREATE TABLE IF NOT EXISTS disaster_event_processing (
+  event_id UUID,
+  claim_token UUID,
+  status Enum('processing','completed','failed'),
+  failure_reason String DEFAULT '',
+  processed_at DateTime64(3) DEFAULT now64(3),
+  payouts_count UInt32
+) ENGINE = ReplacingMergeTree(processed_at)
+  PARTITION BY toYYYYMM(processed_at)
+  ORDER BY (event_id);
 
 CREATE TABLE IF NOT EXISTS proposals (
   id UUID DEFAULT generateUUIDv4(),

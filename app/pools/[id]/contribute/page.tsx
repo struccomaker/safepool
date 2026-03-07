@@ -3,6 +3,8 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 
+const GUEST_MEMBER_ID = '00000000-0000-0000-0000-000000000000'
+
 export default function ContributePage() {
   const params = useParams()
   const poolId = params.id as string
@@ -19,7 +21,7 @@ export default function ContributePage() {
       const res = await fetch('/api/payments/contribute', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pool_id: poolId, member_id: 'guest', amount, currency: 'USD', wallet_address: wallet }),
+        body: JSON.stringify({ pool_id: poolId, member_id: GUEST_MEMBER_ID, amount, currency: 'USD', wallet_address: wallet }),
       })
       const data = await res.json() as { contribution_id?: string; paymentUrl?: string; error?: string }
       if (!res.ok) throw new Error(data.error ?? 'Payment failed')

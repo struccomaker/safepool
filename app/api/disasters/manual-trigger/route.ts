@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import client from '@/lib/clickhouse'
+import { insertRows } from '@/lib/clickhouse'
 import { evaluateTriggers } from '@/lib/disaster-engine'
 import type { ManualTriggerRequest } from '@/types'
 
@@ -9,9 +9,7 @@ export async function POST(req: Request) {
 
     // Insert synthetic disaster event
     const eventId = crypto.randomUUID()
-    await client.insert({
-      table: 'disaster_events',
-      values: [{
+    await insertRows('disaster_events', [{
         id: eventId,
         source: 'manual',
         external_id: `manual-${eventId}`,
@@ -24,12 +22,33 @@ export async function POST(req: Request) {
         occurred_at: new Date().toISOString().replace('T', ' ').replace('Z', ''),
         raw_data: JSON.stringify(body),
         processed: 0,
-      }],
-      format: 'JSONEachRow',
-    })
+      }])
 
-    // Immediately evaluate triggers
-    await evaluateTriggers(eventId)
+    const claimToken = crypto.randomUUID()
+
+    try {
+      const payoutCount = await evaluateTriggers(eventId)
+
+      await insertRows('disaster_event_processing', [{
+        event_id: eventId,
+        claim_token: claimToken,
+        status: 'completed',
+        payouts_count: payoutCount,
+        failure_reason: '',
+      }])
+    } catch (payoutError: unknown) {
+      const failureReason = payoutError instanceof Error ? payoutError.message : 'Unknown payout processing error'
+
+      await insertRows('disaster_event_processing', [{
+        event_id: eventId,
+        claim_token: claimToken,
+        status: 'failed',
+        payouts_count: 0,
+        failure_reason: failureReason,
+      }])
+
+      throw payoutError
+    }
 
     return NextResponse.json({ eventId })
   } catch (err: unknown) {
