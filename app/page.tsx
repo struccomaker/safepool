@@ -1,6 +1,7 @@
 import GlobeCenterPanel from '@/components/dashboard/GlobeCenterPanel'
 import LeftConfigSidebar from '@/components/dashboard/LeftConfigSidebar'
 import RightConfigSidebar from '@/components/dashboard/RightConfigSidebar'
+import TopNavigationMenu from '@/components/dashboard/TopNavigationMenu'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 export default function DashboardPage() {
@@ -8,11 +9,17 @@ export default function DashboardPage() {
     <div className="relative h-[100dvh] w-full overflow-hidden bg-[#050508] text-white">
       <GlobeCenterPanel />
 
+      <div className="pointer-events-none absolute inset-0 z-40 hidden lg:block">
+        <div className="pointer-events-auto absolute right-4 top-4">
+          <TopNavigationMenu isAuthenticated={false} />
+        </div>
+      </div>
+
       <div className="pointer-events-none absolute inset-0 z-30 hidden lg:block">
-        <div className="pointer-events-auto absolute left-4 top-6 h-[calc(100dvh-3rem)] w-[320px] overflow-y-auto">
+        <div className="pointer-events-auto absolute left-4 top-20 h-[calc(100dvh-6rem)] w-[320px] overflow-y-auto">
           <LeftConfigSidebar />
         </div>
-        <div className="pointer-events-auto absolute right-4 top-6 h-[calc(100dvh-3rem)] w-[320px] overflow-y-auto">
+        <div className="pointer-events-auto absolute right-4 top-20 h-[calc(100dvh-6rem)] w-[320px] overflow-y-auto">
           <RightConfigSidebar />
         </div>
       </div>
