@@ -36,9 +36,11 @@ export interface DisasterPin {
   /** Data source shown in sidebar (e.g. 'USGS', 'GDACS', 'OWM') */
   source: string
   /** Current alert status shown in sidebar */
-  status: 'Triggered' | 'Monitoring' | 'Resolved'
+  status: 'Triggered' | 'Monitoring' | 'Resolved' | 'Payout Given'
   /** Mock payout amount (USD) disbursed from the pool for this disaster */
   payoutAmount: number
+  /** Mock number of donors whose contributions funded this payout */
+  donorCount: number
 }
 
 export const DISASTER_PINS: DisasterPin[] = [
@@ -60,8 +62,9 @@ export const DISASTER_PINS: DisasterPin[] = [
     eventType: 'Earthquake',
     severity: 'M6.5',
     source: 'USGS',
-    status: 'Triggered',
+    status: 'Monitoring',
     payoutAmount: 45200,
+    donorCount: 347,
   },
   {
     id: 'jakarta-flood',
@@ -83,6 +86,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     source: 'GDACS',
     status: 'Monitoring',
     payoutAmount: 28750,
+    donorCount: 212,
   },
   {
     id: 'kathmandu-eq',
@@ -104,6 +108,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     source: 'USGS',
     status: 'Monitoring',
     payoutAmount: 18400,
+    donorCount: 158,
   },
   {
     id: 'bangkok-flood',
@@ -125,8 +130,33 @@ export const DISASTER_PINS: DisasterPin[] = [
     source: 'GDACS',
     status: 'Monitoring',
     payoutAmount: 11600,
+    donorCount: 89,
   },
 ]
+
+/** Brazil earthquake demo pin — shown only when the earthquake demo is active. */
+export const BRAZIL_EQ_PIN: DisasterPin = {
+  id: 'brazil-eq',
+  label: 'M7.4 Earthquake',
+  location: 'Acre, Brazil',
+  coords: [-70.81, -9.19],
+  dotColor: '#ef4444',
+  rings2d: [
+    [0.25, '#ef4444', 0.04, 0.18],
+    [0.15, '#dc2626', 0.08, 0.24],
+    [0.07, '#b91c1c', 0.14, 0.32],
+    [0.025, '#fca5a5', 0.24, 0.45],
+  ],
+  ring3d: { maxR: 7, propagationSpeed: 2.5, repeatPeriod: 1000 },
+  pointSize: 0.4,
+  countryCode: 'BR',
+  eventType: 'Earthquake',
+  severity: 'M7.4',
+  source: 'USGS',
+  status: 'Triggered',
+  payoutAmount: 12450,
+  donorCount: 283,
+}
 
 /**
  * Creates a map of country codes to their disaster pins.
