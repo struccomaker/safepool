@@ -94,7 +94,7 @@ export async function GET(req: Request) {
   }
 
   if (result === 'grant_rejected') {
-    return redirectTo(req, '/profile', 'grant_rejected', referenceId)
+    return redirectTo(req, '/', 'grant_rejected', referenceId)
   }
 
   if (!interactRef) {
@@ -165,7 +165,7 @@ export async function GET(req: Request) {
         updated_at: toClickHouseDateTime(new Date()),
       }])
 
-      return redirectTo(req, '/profile', 'interaction_completed', referenceId)
+      return redirectTo(req, '/', 'interaction_completed', referenceId)
     }
 
     if (flow === 'outgoing') {
@@ -225,7 +225,7 @@ export async function GET(req: Request) {
         }
       )
 
-      return redirectTo(req, '/dashboard', finalStatus.state, referenceId)
+      return redirectTo(req, '/', finalStatus.state, referenceId)
     }
 
     const recurringPayload = payload as RecurringPayload
@@ -265,7 +265,7 @@ export async function GET(req: Request) {
       updated_at: toClickHouseDateTime(new Date()),
     }])
 
-    return redirectTo(req, '/profile', 'recurring_active', referenceId)
+    return redirectTo(req, '/', 'recurring_active', referenceId)
   } catch (err: unknown) {
     console.error(err)
 
