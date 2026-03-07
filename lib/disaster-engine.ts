@@ -1,6 +1,7 @@
 import client from '@/lib/clickhouse'
 import { processPayouts } from '@/lib/payout-engine'
 import { GLOBAL_POOL_ID, GLOBAL_POOL_CONFIG } from '@/lib/global-pool'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import type { Pool, Member, DisasterEvent } from '@/types'
 
 /** Haversine formula — returns distance in km between two lat/lon points */
@@ -19,6 +20,8 @@ function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
  * Returns the total number of payouts initiated.
  */
 export async function evaluateTriggers(disasterEventId: string): Promise<number> {
+  const admin = createSupabaseAdminClient()
+
   // Load the disaster event
   const eventResult = await client.query({
     query: `
@@ -52,25 +55,20 @@ export async function evaluateTriggers(disasterEventId: string): Promise<number>
   if (disaster.magnitude < rules.minMagnitude) return 0
 
   // Load all active members of the global pool
-  const membersResult = await client.query({
-    query: `
-      SELECT
-        id,
-        pool_id,
-        user_id,
-        wallet_address,
-        location_lat,
-        location_lon,
-        household_size,
-        joined_at,
-        is_active
-      FROM members
-      WHERE pool_id = {pool_id:String} AND is_active = 1
-    `,
-    query_params: { pool_id: GLOBAL_POOL_ID },
-    format: 'JSONEachRow',
-  })
-  const members = (await membersResult.json()) as Member[]
+  const { data: memberRows, error: membersError } = await admin
+    .from('members')
+    .select('id,pool_id,user_id,wallet_address,location_lat,location_lon,household_size,joined_at,is_active')
+    .eq('pool_id', GLOBAL_POOL_ID)
+    .eq('is_active', true)
+
+  if (membersError) {
+    throw new Error(`Failed to load active members for disaster processing: ${membersError.message}`)
+  }
+
+  const members = (memberRows ?? []).map((row) => ({
+    ...(row as Member),
+    is_active: row.is_active ? 1 : 0,
+  })) as Member[]
 
   // Filter to members within the disaster radius
   const affectedMembers = members.filter(
@@ -83,13 +81,17 @@ export async function evaluateTriggers(disasterEventId: string): Promise<number>
   if (affectedMembers.length === 0) return 0
 
   // Get global pool balance
-  const balResult = await client.query({
-    query: `SELECT sum(total_in) AS total FROM pool_balances WHERE pool_id = {pool_id:String}`,
-    query_params: { pool_id: GLOBAL_POOL_ID },
-    format: 'JSONEachRow',
-  })
-  const [balRow] = (await balResult.json()) as { total: number }[]
-  const totalFunds = balRow?.total ?? 0
+  const { data: contributionRows, error: contributionError } = await admin
+    .from('contributions')
+    .select('amount')
+    .eq('pool_id', GLOBAL_POOL_ID)
+    .eq('status', 'completed')
+
+  if (contributionError) {
+    throw new Error(`Failed to load contribution balance for disaster processing: ${contributionError.message}`)
+  }
+
+  const totalFunds = (contributionRows ?? []).reduce((sum, row) => sum + Number(row.amount ?? 0), 0)
 
   if (totalFunds <= 0) return 0
 

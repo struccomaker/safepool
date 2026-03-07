@@ -1,49 +1,40 @@
 // Server Component — user wallet + contribution history
-import { queryRows } from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import type { Contribution, UserWallet } from '@/types'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import WalletSetupForm from '@/components/WalletSetupForm'
 
 async function getUserContributions(userId: string): Promise<Contribution[]> {
   try {
-    const rows = await queryRows<{
-      id: string
-      pool_id: string
-      member_id: string
-      amount: number
-      currency: string
-      incoming_payment_id: string
-      contributed_at: string
-      status: string
-    }>(
-      `
-      SELECT
-        toString(c.id) AS id,
-        toString(c.pool_id) AS pool_id,
-        toString(c.member_id) AS member_id,
-        c.amount,
-        c.currency,
-        c.incoming_payment_id,
-        c.contributed_at,
-        c.status
-      FROM contributions c
-      ANY INNER JOIN (
-        SELECT id
-        FROM members
-        WHERE user_id = toUUID({user_id:String})
-          AND pool_id = toUUID({pool_id:String})
-          AND is_active = 1
-      ) m ON c.member_id = m.id
-      WHERE c.pool_id = toUUID({pool_id:String})
-      ORDER BY c.contributed_at DESC
-      LIMIT 50
-      `,
-      {
-        user_id: userId,
-        pool_id: GLOBAL_POOL_ID,
-      }
-    )
+    const admin = createSupabaseAdminClient()
+    const { data: members, error: membersError } = await admin
+      .from('members')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .eq('is_active', true)
+
+    if (membersError) {
+      return []
+    }
+
+    const memberIds = members.map((member) => member.id)
+    if (memberIds.length === 0) {
+      return []
+    }
+
+    const { data: rows, error } = await admin
+      .from('contributions')
+      .select('id,pool_id,member_id,amount,currency,incoming_payment_id,contributed_at,status')
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .in('member_id', memberIds)
+      .order('contributed_at', { ascending: false })
+      .limit(50)
+
+    if (error) {
+      return []
+    }
 
     return rows as Contribution[]
   } catch {
@@ -53,35 +44,24 @@ async function getUserContributions(userId: string): Promise<Contribution[]> {
 
 async function getWallet(userId: string): Promise<UserWallet | null> {
   try {
-    const rows = await queryRows<{
-      id: string
-      user_id: string
-      wallet_address: string
-      provider: string
-      status: string
-      is_default: number
-      created_at: string
-    }>(
-      `
-      SELECT
-        toString(id) AS id,
-        toString(user_id) AS user_id,
-        wallet_address,
-        provider,
-        toString(status) AS status,
-        is_default,
-        toString(created_at) AS created_at
-      FROM user_wallets
-      WHERE user_id = toUUID({user_id:String})
-        AND is_default = 1
-      ORDER BY created_at DESC
-      LIMIT 1
-      `,
-      { user_id: userId }
-    )
+    const admin = createSupabaseAdminClient()
+    const { data: rows, error } = await admin
+      .from('user_wallets')
+      .select('id,user_id,wallet_address,provider,status,is_default,created_at')
+      .eq('user_id', userId)
+      .eq('is_default', true)
+      .order('created_at', { ascending: false })
+      .limit(1)
+
+    if (error) {
+      return null
+    }
 
     if (rows.length === 0) return null
-    return rows[0] as UserWallet
+    return {
+      ...(rows[0] as UserWallet),
+      is_default: 1,
+    }
   } catch {
     return null
   }

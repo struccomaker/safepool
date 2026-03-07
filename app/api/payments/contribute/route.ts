@@ -3,9 +3,9 @@ export const dynamic = 'force-dynamic'
 import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
 import { createIncomingPayment, createOneTimeContributionAuthorization } from '@/lib/open-payments'
-import { insertRows, queryRows } from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 import { isValidWalletAddress } from '@/lib/wallet-address'
 import { encryptSecret } from '@/lib/secret-crypto'
@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
     }
 
     await syncSupabaseUserToClickHouse(user)
+    const admin = createSupabaseAdminClient()
 
     const body = await req.json() as ContributeRequest
 
@@ -67,21 +68,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'currency and a positive amount are required' }, { status: 400 })
     }
 
-    const members = await queryRows<{ id: string; wallet_address: string }>(
-      `
-      SELECT toString(id) AS id, wallet_address
-      FROM members
-      WHERE pool_id = toUUID({pool_id:String})
-        AND user_id = toUUID({user_id:String})
-        AND is_active = 1
-      ORDER BY joined_at DESC
-      LIMIT 1
-      `,
-      {
-        pool_id: GLOBAL_POOL_ID,
-        user_id: user.id,
-      }
-    )
+    const { data: members, error: membersError } = await admin
+      .from('members')
+      .select('id,wallet_address')
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .eq('user_id', user.id)
+      .eq('is_active', true)
+      .order('joined_at', { ascending: false })
+      .limit(1)
+
+    if (membersError) {
+      return NextResponse.json({ error: `Failed to load member profile: ${membersError.message}` }, { status: 500 })
+    }
 
     if (members.length === 0) {
       return NextResponse.json({ error: 'Join SafePool first before contributing' }, { status: 400 })
@@ -119,34 +117,46 @@ export async function POST(req: NextRequest) {
     if (authorization.mode === 'interaction_required') {
       const maybeQuoteId = (authorization as unknown as CreateOneTimeAuthorizationWithQuote).quoteId
 
-      await insertRows('payment_grant_sessions', [{
-        id: crypto.randomUUID(),
-        flow: 'incoming',
-        reference_id: contributionId,
-        continue_uri: authorization.continueUri,
-        continue_access_token: encryptSecret(authorization.continueAccessToken),
-        finish_nonce: authorization.finishNonce,
-        payload_json: JSON.stringify({
-          amount: body.amount,
-          currency: effectiveCurrency,
-          pool_id: GLOBAL_POOL_ID,
-          member_id: members[0].id,
-          member_wallet_address: memberWallet,
-          incoming_payment_id: payment.incomingPaymentId,
-          quote_id: typeof maybeQuoteId === 'string' ? maybeQuoteId : '',
-        }),
-        status: 'pending',
-      }])
+      const { error: grantInsertError } = await admin
+        .from('payment_grant_sessions')
+        .insert({
+          id: crypto.randomUUID(),
+          flow: 'incoming',
+          reference_id: contributionId,
+          continue_uri: authorization.continueUri,
+          continue_access_token: encryptSecret(authorization.continueAccessToken),
+          finish_nonce: authorization.finishNonce,
+          payload_json: JSON.stringify({
+            amount: body.amount,
+            currency: effectiveCurrency,
+            pool_id: GLOBAL_POOL_ID,
+            member_id: members[0].id,
+            member_wallet_address: memberWallet,
+            incoming_payment_id: payment.incomingPaymentId,
+            quote_id: typeof maybeQuoteId === 'string' ? maybeQuoteId : '',
+          }),
+          status: 'pending',
+        })
+
+      if (grantInsertError) {
+        return NextResponse.json({ error: `Failed to persist payment grant session: ${grantInsertError.message}` }, { status: 500 })
+      }
     }
 
-    await insertRows('pending_contributions', [{
+    const { error: pendingInsertError } = await admin
+      .from('pending_contributions')
+      .insert({
         id: contributionId,
         pool_id: GLOBAL_POOL_ID,
         member_id: members[0].id,
         amount: body.amount,
         currency: effectiveCurrency,
         incoming_payment_id: payment.incomingPaymentId,
-      }])
+      })
+
+    if (pendingInsertError) {
+      return NextResponse.json({ error: `Failed to persist pending contribution: ${pendingInsertError.message}` }, { status: 500 })
+    }
 
     return NextResponse.json({
       contribution_id: contributionId,
