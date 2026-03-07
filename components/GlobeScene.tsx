@@ -676,6 +676,10 @@ export default function GlobeScene({
 
     setSelectedCountryCode(code)
 
+    // Initialize target coordinates to country center by default
+    let targetLat = getFeatureCenter(feature).lat
+    let targetLng = getFeatureCenter(feature).lng
+
     if (globeRef.current) {
       const controls = globeRef.current.controls()
       controls.autoRotate = false
@@ -683,9 +687,6 @@ export default function GlobeScene({
       // Try to find the nearest disaster epicenter for this country
       const disastersByCountry = getDisastersByCountry()
       const disastersInCountry = disastersByCountry.get(code)
-
-      let targetLat = getFeatureCenter(feature).lat
-      let targetLng = getFeatureCenter(feature).lng
 
       if (disastersInCountry && disastersInCountry.length > 0) {
         // Get current POV to calculate distance from viewer
@@ -730,7 +731,8 @@ export default function GlobeScene({
     }
 
     drilldownTimerRef.current = window.setTimeout(() => {
-      onCountryDrilldown({ code, name, center: { lat: getFeatureCenter(feature).lat, lng: getFeatureCenter(feature).lng } })
+      // Use the same center that was used for the globe zoom (epicenter or country center)
+      onCountryDrilldown({ code, name, center: { lat: targetLat, lng: targetLng } })
     }, 700)
   }
 
