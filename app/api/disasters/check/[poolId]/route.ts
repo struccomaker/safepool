@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import client from '@/lib/clickhouse'
 
-export async function GET(_req: Request, { params }: { params: Promise<{ poolId: string }> }) {
+export async function GET(_req: Request, context: { params: Promise<{ poolId: string }> }) {
   try {
-    const { poolId } = await params
+    const { poolId } = await context.params
 
     // Check if any payouts were sent for this pool in the last hour
     const result = await client.query({

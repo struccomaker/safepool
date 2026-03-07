@@ -11,9 +11,21 @@ interface ContributeRequest {
   member_id?: string
 }
 
+const GUEST_MEMBER_ID = '00000000-0000-0000-0000-000000000000'
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function normalizeMemberId(memberId?: string): string {
+  if (!memberId) return GUEST_MEMBER_ID
+  return UUID_REGEX.test(memberId) ? memberId : GUEST_MEMBER_ID
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as ContributeRequest
+
+    if (!body.currency || typeof body.amount !== 'number' || body.amount <= 0) {
+      return NextResponse.json({ error: 'currency and a positive amount are required' }, { status: 400 })
+    }
 
     // Create ILP incoming payment (falls back to demo mode if not configured)
     const payment = await createIncomingPayment({
@@ -29,7 +41,7 @@ export async function POST(req: NextRequest) {
       values: [{
         id: contributionId,
         pool_id: GLOBAL_POOL_ID,
-        member_id: body.member_id ?? 'guest',
+        member_id: normalizeMemberId(body.member_id),
         amount: body.amount,
         currency: body.currency,
         incoming_payment_id: payment.incomingPaymentId ?? payment.paymentUrl ?? '',

@@ -28,4 +28,3 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: ['/dashboard/:path*', '/pools/create', '/pools/:id/contribute', '/profile/:path*'],
 }
-

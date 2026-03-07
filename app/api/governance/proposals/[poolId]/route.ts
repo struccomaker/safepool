@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import client from '@/lib/clickhouse'
 
-export async function GET(_req: Request, { params }: { params: Promise<{ poolId: string }> }) {
+export async function GET(_req: Request, context: { params: Promise<{ poolId: string }> }) {
   try {
-    const { poolId } = await params
+    const { poolId } = await context.params
 
     const result = await client.query({
       query: `
