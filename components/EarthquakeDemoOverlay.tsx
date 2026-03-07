@@ -1,18 +1,28 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
 
-// ── Mock data (frontend only) ─────────────────────────────────────────────────
-const EQ_LOCATION      = 'Acre, Brazil'
-const EQ_MAGNITUDE     = 7.4
-const POOL_BALANCE     = 12_450
-const USER_CONTRIBUTED = 150
-const TOTAL_CONTRIB    = 3_000
-const AFFECTED         = 283
-const SEVERITY_MULT    = 1.0   // M7.4 → critical
+// ── Data shape from /api/earthquake/demo-data ─────────────────────────────────
 
-const TOTAL_PAYOUT   = POOL_BALANCE * SEVERITY_MULT
-const USER_SHARE     = (USER_CONTRIBUTED / TOTAL_CONTRIB) * TOTAL_PAYOUT
-const PER_MEMBER     = TOTAL_PAYOUT / AFFECTED
+interface EarthquakeData {
+  poolBalance: number
+  totalPayout: number
+  userContributed: number
+  userShare: number
+  affected: number
+  payoutRatio: number
+}
+
+const FALLBACK_DATA: EarthquakeData = {
+  poolBalance: 0,
+  totalPayout: 0,
+  userContributed: 0,
+  userShare: 0,
+  affected: 1,
+  payoutRatio: 0.3,
+}
+
+const EQ_LOCATION = 'Acre, Brazil'
+const EQ_MAGNITUDE = 7.4
 
 const WALLET_SUFFIXES = ['a3f2', 'c91b', '77de', 'f043', '22ac', 'b1e8', '5d70', '9cc4']
 
@@ -140,7 +150,7 @@ function AlertPhase() {
   )
 }
 
-function PayoutPhase({ isShrinking }: { isShrinking: boolean }) {
+function PayoutPhase({ isShrinking, data }: { isShrinking: boolean; data: EarthquakeData }) {
   const [count, setCount] = useState(0)
   const [barW, setBarW] = useState(0)
 
@@ -152,13 +162,13 @@ function PayoutPhase({ isShrinking }: { isShrinking: boolean }) {
     const tick = (now: number) => {
       const p = Math.min((now - start) / duration, 1)
       const eased = p < 1 ? 1 - Math.pow(1 - p, 2) : 1
-      setCount(Math.round(eased * AFFECTED))
+      setCount(Math.round(eased * data.affected))
       if (p < 1) raf = requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
     const t = window.setTimeout(() => setBarW(100), 60)
     return () => { cancelAnimationFrame(raf); clearTimeout(t) }
-  }, [isShrinking])
+  }, [isShrinking, data.affected])
 
   return (
     <>
@@ -192,8 +202,8 @@ function PayoutPhase({ isShrinking }: { isShrinking: boolean }) {
                 className="font-black leading-none tabular-nums"
                 style={{
                   fontSize: '7rem',
-                  color: count === AFFECTED ? '#fbbf24' : '#ffffff',
-                  textShadow: count === AFFECTED
+                  color: count === data.affected ? '#fbbf24' : '#ffffff',
+                  textShadow: count === data.affected
                     ? '0 0 40px rgba(251,191,36,0.8)'
                     : '0 0 20px rgba(255,255,255,0.3)',
                   transition: 'color 0.4s, text-shadow 0.4s',
@@ -209,7 +219,7 @@ function PayoutPhase({ isShrinking }: { isShrinking: boolean }) {
             {/* Right: amount */}
             <div className="flex flex-col items-center justify-center border-l border-amber-500/20 px-8 py-8 shrink-0 text-right">
               <div className="font-mono text-[10px] uppercase tracking-[0.2em] text-amber-400/60 mb-1">Dispatched</div>
-              <div className="text-base font-bold text-white">${fmt(TOTAL_PAYOUT)}</div>
+              <div className="text-base font-bold text-white">${fmt(data.totalPayout)}</div>
             </div>
 
           </div>
@@ -227,7 +237,7 @@ function PayoutPhase({ isShrinking }: { isShrinking: boolean }) {
   )
 }
 
-function ThankyouPhase({ onDismiss }: { onDismiss: () => void }) {
+function ThankyouPhase({ onDismiss, data }: { onDismiss: () => void; data: EarthquakeData }) {
   const [count, setCount] = useState(0)
   const [pulseRing, setPulseRing] = useState(false)
 
@@ -238,7 +248,7 @@ function ThankyouPhase({ onDismiss }: { onDismiss: () => void }) {
     const tick = (now: number) => {
       const p = Math.min((now - start) / duration, 1)
       const eased = 1 - Math.pow(1 - p, 3)
-      setCount(eased * USER_SHARE)
+      setCount(eased * data.userShare)
       if (p < 1) requestAnimationFrame(tick)
     }
     requestAnimationFrame(tick)
@@ -296,18 +306,18 @@ function ThankyouPhase({ onDismiss }: { onDismiss: () => void }) {
                 ${fmt(count)}
               </div>
               <div className="mt-1 text-xs text-white/45">
-                funded from your ${USER_CONTRIBUTED.toLocaleString()} contribution
+                funded from your ${fmt(data.userContributed)} contribution
               </div>
             </div>
 
             {/* Stats row */}
             <div className="mb-6 grid grid-cols-3 gap-3 text-center">
               <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="text-lg font-bold text-white">{AFFECTED}</div>
+                <div className="text-lg font-bold text-white">{data.affected}</div>
                 <div className="text-[10px] text-white/45 uppercase tracking-wider">Families</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="text-lg font-bold text-white">${(TOTAL_PAYOUT / 1000).toFixed(1)}k</div>
+                <div className="text-lg font-bold text-white">${data.totalPayout >= 1000 ? (data.totalPayout / 1000).toFixed(1) + 'k' : fmt(data.totalPayout)}</div>
                 <div className="text-[10px] text-white/45 uppercase tracking-wider">Dispatched</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-white/5 p-3">
@@ -337,6 +347,7 @@ function ThankyouPhase({ onDismiss }: { onDismiss: () => void }) {
 
 export default function EarthquakeDemoOverlay() {
   const [phase, setPhase] = useState<Phase>('idle')
+  const [data, setData] = useState<EarthquakeData>(FALLBACK_DATA)
   const timersRef = useRef<number[]>([])
 
   const clearTimers = () => {
@@ -351,11 +362,22 @@ export default function EarthquakeDemoOverlay() {
   }
 
   useEffect(() => {
-    const handle = () => {
+    const handle = async () => {
       clearTimers()
       setPhase('alert')
 
-      const t1 = window.setTimeout(() => setPhase('payout'),    5000)
+      // Fetch real data from Supabase while the alert banner is showing
+      try {
+        const res = await fetch('/api/earthquake/demo-data')
+        if (res.ok) {
+          const payload = await res.json()
+          setData(payload)
+        }
+      } catch {
+        console.warn('[earthquake] Failed to fetch demo data, using fallback')
+      }
+
+      const t1 = window.setTimeout(() => setPhase('payout'), 5000)
       const t2 = window.setTimeout(() => {
         setPhase('shrinking')
         window.dispatchEvent(new CustomEvent('safepool:earthquake-resolved'))
@@ -379,9 +401,9 @@ export default function EarthquakeDemoOverlay() {
 
   return (
     <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center">
-      {phase === 'alert'                          && <AlertPhase />}
-      {(phase === 'payout' || phase === 'shrinking') && <PayoutPhase isShrinking={phase === 'shrinking'} />}
-      {phase === 'thankyou'                       && <ThankyouPhase onDismiss={dismiss} />}
+      {phase === 'alert' && <AlertPhase />}
+      {(phase === 'payout' || phase === 'shrinking') && <PayoutPhase isShrinking={phase === 'shrinking'} data={data} />}
+      {phase === 'thankyou' && <ThankyouPhase onDismiss={dismiss} data={data} />}
     </div>
   )
 }
