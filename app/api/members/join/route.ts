@@ -6,7 +6,7 @@ import client from '@/lib/clickhouse'
 import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { getLatestUserWalletBinding, syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
-import { queryRows } from '@/lib/clickhouse'
+import { queryRows, runCommand, toClickHouseDateTime } from '@/lib/clickhouse'
 import { isValidWalletAddress, verifyWalletAddressRemotely } from '@/lib/wallet-address'
 
 interface JoinRequest {
@@ -77,6 +77,27 @@ export async function POST(req: NextRequest) {
     )
 
     if (existingMember.length > 0) {
+      await runCommand(
+        `
+        ALTER TABLE members
+        UPDATE
+          wallet_address = {wallet_address:String},
+          location_lat = {location_lat:Float64},
+          location_lon = {location_lon:Float64},
+          household_size = {household_size:UInt8},
+          joined_at = parseDateTimeBestEffort({joined_at:String})
+        WHERE id = toUUID({id:String})
+        `,
+        {
+          wallet_address: walletAddress,
+          location_lat: body.location_lat,
+          location_lon: body.location_lon,
+          household_size: body.household_size ?? 1,
+          joined_at: toClickHouseDateTime(new Date()),
+          id: existingMember[0].id,
+        }
+      )
+
       return NextResponse.json({ id: existingMember[0].id }, { status: 200 })
     }
 
