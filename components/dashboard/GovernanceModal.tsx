@@ -1,23 +1,41 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import type { PayoutParameters } from '@/app/api/governance/parameters/route'
 
 interface GovernanceModalProps {
   open: boolean
   onClose: () => void
 }
 
+const PARAM_BOUNDS = {
+  safety_cap:          { min: 0.05, max: 0.25 },
+  trigger_sensitivity: { min: 4.5,  max: 7.5  },
+  impact_radius:       { min: 20,   max: 150   },
+} as const
+
+const DEFAULTS: PayoutParameters = {
+  safety_cap:          0.10,
+  trigger_sensitivity: 6.0,
+  impact_radius:       50.0,
+}
+
+function clampParams(raw: PayoutParameters): PayoutParameters {
+  return {
+    safety_cap:          Math.min(Math.max(raw.safety_cap,          PARAM_BOUNDS.safety_cap.min),          PARAM_BOUNDS.safety_cap.max),
+    trigger_sensitivity: Math.min(Math.max(raw.trigger_sensitivity, PARAM_BOUNDS.trigger_sensitivity.min), PARAM_BOUNDS.trigger_sensitivity.max),
+    impact_radius:       Math.min(Math.max(raw.impact_radius,       PARAM_BOUNDS.impact_radius.min),       PARAM_BOUNDS.impact_radius.max),
+  }
+}
+
 function LeaderBar({ value, max, min = 0 }: { value: number; max: number; min?: number }) {
-  const pct = Math.round(((value - min) / (max - min)) * 100)
+  const pct = Math.min(100, Math.max(0, Math.round(((value - min) / (max - min)) * 100)))
   return (
-    <div className="mt-1">
-      <div className="h-1.5 w-full rounded-full bg-green-500/20">
-        <div className="h-1.5 rounded-full bg-green-400 transition-all" style={{ width: `${pct}%` }} />
-      </div>
-      <div className="mt-0.5 flex justify-between text-xs text-white/40">
-        <span>{min}</span>
-        <span>{max}</span>
-      </div>
+    <div className="relative h-2 w-full overflow-hidden rounded-full bg-white/10">
+      <div
+        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-700"
+        style={{ width: `${pct}%` }}
+      />
     </div>
   )
 }
@@ -98,6 +116,28 @@ function QuorumInfo() {
 }
 
 export default function GovernanceModal({ open, onClose }: GovernanceModalProps) {
+  
+  const [params, setParams]             = useState<PayoutParameters>(DEFAULTS)
+  const [usingDefaults, setUsingDefaults] = useState(true)
+  const [loading, setLoading]           = useState(false)
+  
+  useEffect(() => {
+    if (!open) return
+    setLoading(true)
+    fetch('/api/governance/parameters')
+      .then(r => r.json())
+      .then(data => {
+        setParams(clampParams(data.parameters))
+        setUsingDefaults(data.using_defaults)
+      })
+      .catch(() => {
+        setParams(DEFAULTS)
+        setUsingDefaults(true)
+      })
+      .finally(() => setLoading(false))
+  }, [open])
+
+
   if (!open) return null
 
   return (
@@ -129,9 +169,15 @@ export default function GovernanceModal({ open, onClose }: GovernanceModalProps)
                 <p className="text-sm font-semibold text-white">Safety Cap</p>
                 <p className="text-xs text-white/50">Max % of pool released per disaster event</p>
               </div>
-              <p className="text-xl font-bold text-green-400">10%</p>
+              <span className="text-lg font-semibold tabular-nums text-green-400">
+                {loading ? '—' : `${(params.safety_cap * 100).toFixed(0)}%`}
+              </span>
             </div>
-            <LeaderBar value={10} min={1} max={20} />
+            <LeaderBar value={params.safety_cap} min={PARAM_BOUNDS.safety_cap.min} max={PARAM_BOUNDS.safety_cap.max} />
+            <div className="flex justify-between text-[10px] text-white/25">
+              <span>{(PARAM_BOUNDS.safety_cap.min * 100).toFixed(0)}%</span>
+              <span>{(PARAM_BOUNDS.safety_cap.max * 100).toFixed(0)}%</span>
+            </div>
           </div>
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -140,9 +186,15 @@ export default function GovernanceModal({ open, onClose }: GovernanceModalProps)
                 <p className="text-sm font-semibold text-white">Trigger Sensitivity</p>
                 <p className="text-xs text-white/50">Minimum earthquake magnitude to trigger payout</p>
               </div>
-              <p className="text-xl font-bold text-green-400">6.0</p>
+              <span className="text-lg font-semibold tabular-nums text-green-400">
+                {loading ? '—' : `M${params.trigger_sensitivity.toFixed(1)}`}
+              </span>
             </div>
-            <LeaderBar value={6.0} min={5.0} max={9.0} />
+            <LeaderBar value={params.trigger_sensitivity} min={PARAM_BOUNDS.trigger_sensitivity.min} max={PARAM_BOUNDS.trigger_sensitivity.max} />
+            <div className="flex justify-between text-[10px] text-white/25">
+              <span>M{PARAM_BOUNDS.trigger_sensitivity.min}</span>
+              <span>M{PARAM_BOUNDS.trigger_sensitivity.max}</span>
+            </div>
           </div>
 
           <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -151,9 +203,15 @@ export default function GovernanceModal({ open, onClose }: GovernanceModalProps)
                 <p className="text-sm font-semibold text-white">Impact Radius</p>
                 <p className="text-xs text-white/50">Coverage area around epicentre</p>
               </div>
-              <p className="text-xl font-bold text-green-400">50 km</p>
+              <span className="text-lg font-semibold tabular-nums text-green-400">
+                  {loading ? '—' : `${params.impact_radius.toFixed(0)} km`}
+                </span>
             </div>
-            <LeaderBar value={50} min={10} max={100} />
+            <LeaderBar value={params.impact_radius} min={PARAM_BOUNDS.impact_radius.min} max={PARAM_BOUNDS.impact_radius.max} />
+            <div className="flex justify-between text-[10px] text-white/25">
+              <span>{PARAM_BOUNDS.impact_radius.min} km</span>
+              <span>{PARAM_BOUNDS.impact_radius.max} km</span>
+            </div>
           </div>
 
           {/* Pool Stats */}

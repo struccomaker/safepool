@@ -6,6 +6,7 @@ import { AnimationAction, AnimationClip, AnimationMixer, Box3, Euler, Group, Vec
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { clone } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { DISASTER_PINS, getDisastersByCountry } from '@/lib/disaster-pins'
+import { getBrazilStatus } from '@/lib/brazil-eq-state'
 
 const Globe = dynamic(() => import('react-globe.gl'), {
   ssr: false,
@@ -326,8 +327,17 @@ export default function GlobeScene({
   const [showFps, setShowFps] = useState(false)
   const [fps, setFps] = useState(0)
   const [userArcs, setUserArcs] = useState<Array<{ id: number; startLat: number; startLng: number; endLat: number; endLng: number; color: [string, string] }>>([])
-  const [brazilEqCylinder, setBrazilEqCylinder] = useState<{ lat: number; lng: number; altitude: number; size: number; color: string; label: string } | null>(null)
-  const [showBrazilPermRings, setShowBrazilPermRings] = useState(false)
+  const [brazilEqCylinder, setBrazilEqCylinder] = useState<{ lat: number; lng: number; altitude: number; size: number; color: string; label: string } | null>(() => {
+    const s = getBrazilStatus()
+    if (s === 'Monitoring' || s === 'Payout Given') {
+      return { lat: -9.19, lng: -70.81, altitude: 0.07, size: 0.35, color: '#22c55e', label: 'Relief Dispatched · Acre, Brazil' }
+    }
+    return null
+  })
+  const [showBrazilPermRings, setShowBrazilPermRings] = useState(() => {
+    const s = getBrazilStatus()
+    return s === 'Monitoring' || s === 'Payout Given'
+  })
   const clickRingCounterRef = useRef(0)
   const userArcCounterRef = useRef(0)
   const brazilEqTimerRef = useRef<number | null>(null)
@@ -648,6 +658,18 @@ export default function GlobeScene({
     window.addEventListener('safepool:earthquake-end', handleEnd)
     return () => window.removeEventListener('safepool:earthquake-end', handleEnd)
   }, [monochrome])
+
+  useEffect(() => {
+    const handleFocus = (e: Event) => {
+      const { lat, lng } = (e as CustomEvent<{ lat: number; lng: number }>).detail
+      if (!globeRef.current) return
+      const ctrl = globeRef.current.controls()
+      ctrl.autoRotate = false
+      globeRef.current.pointOfView({ lat, lng, altitude: 0.9 }, 1200)
+    }
+    window.addEventListener('safepool:focus-epicentre', handleFocus)
+    return () => window.removeEventListener('safepool:focus-epicentre', handleFocus)
+  }, [])
 
   useEffect(() => {
     const handleSpawnArc = (event: KeyboardEvent) => {
