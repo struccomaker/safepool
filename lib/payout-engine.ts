@@ -104,8 +104,10 @@ export async function processPayouts({
             poolId: pool.id,
             disasterId: disaster.id,
             memberId: member.id,
+            redirectUrl: result.redirectUrl,
           }),
-          status: 'pending',
+          status: 'failed',
+          error_message: 'Interaction-required outgoing payout is not supported in unattended disaster cron flow',
         }])
 
         payoutRows.push({
@@ -117,8 +119,8 @@ export async function processPayouts({
           currency: pool.currency,
           outgoing_payment_id: result.outgoingPaymentId,
           distribution_rule: pool.distribution_model,
-          status: 'pending',
-          failure_reason: 'Payout requires wallet authorization interaction',
+          status: 'failed',
+          failure_reason: 'Payout requires wallet authorization interaction; use DEMO_MODE or pre-authorized grants',
         })
         continue
       }

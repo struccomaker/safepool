@@ -29,8 +29,10 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 - **ClickHouse helper abstraction:** Shared helpers (`queryRows`, `insertRows`, `runCommand`) centralize query patterns.
 - **Input validation on critical writes:** UUID checks, wallet URL validation in payment/member routes.
 - **Fallback-first integration:** Open Payments routes support demo fallback when grants/config unavailable.
+- **Canonical test wallet addressing:** Use `https://ilp.interledger-test.dev/<walletName>` for `POOL_WALLET_ADDRESS` and member wallet addresses; `https://wallet.interledger-test.dev` is UI-only.
 - **Payment lifecycle hardening:** Incoming/outgoing callbacks, status polling, and recurring cron flows are implemented as first-class backend routes.
 - **Encrypted sensitive payment state:** Stored Open Payments continuation/access tokens are encrypted at rest before persistence.
+- **Unattended payout safety:** Interaction-required outgoing payouts are marked failed in cron flow to avoid indefinite pending states.
 
 ---
 

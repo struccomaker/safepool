@@ -127,7 +127,7 @@ export async function POST(req: Request) {
       interval,
       next_payment_date: toClickHouseDateTime(addIntervalDate(new Date(), interval)),
       access_token: encryptSecret(grant.accessToken),
-      manage_uri: grant.manageUri,
+      manage_uri: encryptSecret(grant.manageUri),
       status: 'active',
       updated_at: toClickHouseDateTime(new Date()),
     }])

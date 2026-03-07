@@ -125,10 +125,14 @@ CLICKHOUSE_USER=default
 CLICKHOUSE_PASSWORD=
 CLICKHOUSE_DATABASE=safepool
 
-# Open Payments Testnet (free: wallet.interledger-test.dev)
+# Open Payments Testnet (free: ilp.interledger-test.dev)
 OPEN_PAYMENTS_KEY_ID=
 OPEN_PAYMENTS_PRIVATE_KEY=
-POOL_WALLET_ADDRESS=https://wallet.interledger-test.dev/safepool
+POOL_WALLET_ADDRESS=https://ilp.interledger-test.dev/safepool
+DEMO_MODE=
+
+# NOTE: `ilp.interledger-test.dev/<walletName>` is the canonical Open Payments wallet-address host.
+# `wallet.interledger-test.dev` is the UI portal and should not be used as POOL_WALLET_ADDRESS.
 
 # Disaster APIs
 OPENWEATHERMAP_API_KEY=        # Free tier at openweathermap.org
@@ -146,6 +150,11 @@ SMTP_FROM="SafePool <yourteam@gmail.com>"
 
 # Cron security (any random string)
 CRON_SECRET=
+
+#supabase key 
+NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY=
 ```
 
 ---
@@ -239,7 +248,8 @@ npx ts-node scripts/seed.ts   # Seed demo data
 ## Useful Links
 
 - ClickHouse Cloud: https://clickhouse.cloud (sign up free)
-- Open Payments Testnet wallet: https://wallet.interledger-test.dev
+- Open Payments Testnet UI portal: https://wallet.interledger-test.dev
+- Open Payments wallet-address host: https://ilp.interledger-test.dev
 - USGS Earthquake API: https://earthquake.usgs.gov/fdsnws/event/1/ (no key needed)
 - GDACS API: https://www.gdacs.org/xml/rss.xml (no key needed)
 - OpenWeatherMap: https://openweathermap.org/api (free tier, 60 calls/min)

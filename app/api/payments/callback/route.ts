@@ -249,7 +249,7 @@ export async function GET(req: Request) {
       interval: payload.interval,
       next_payment_date: toClickHouseDateTime(addIntervalDate(new Date(), payload.interval)),
       access_token: encryptSecret(finalized.accessToken),
-      manage_uri: finalized.manageUri,
+      manage_uri: encryptSecret(finalized.manageUri),
       status: 'active',
       updated_at: toClickHouseDateTime(new Date()),
     }])
@@ -261,10 +261,7 @@ export async function GET(req: Request) {
       continue_uri: session.continue_uri,
       continue_access_token: session.continue_access_token,
       finish_nonce: session.finish_nonce,
-      payload_json: JSON.stringify({
-        ...payload,
-        manageUri: finalized.manageUri,
-      }),
+      payload_json: session.payload_json,
       status: 'completed',
       error_message: '',
       updated_at: toClickHouseDateTime(new Date()),
