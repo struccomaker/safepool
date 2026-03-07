@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { NextResponse } from 'next/server'
 import {
-  continueIncomingPayment,
+  continueOneTimeContributionAuthorization,
   continueOutgoingPayment,
   continueRecurringContributionGrant,
   pollOutgoingPaymentCompletion,
@@ -28,6 +28,8 @@ interface IncomingPayload {
   currency: string
   pool_id: string
   member_id: string
+  member_wallet_address: string
+  incoming_payment_id: string
 }
 
 interface OutgoingPayload {
@@ -124,10 +126,9 @@ export async function GET(req: Request) {
 
     if (flow === 'incoming') {
       const payload = JSON.parse(session.payload_json) as IncomingPayload
-      const continued = await continueIncomingPayment({
-        contributionId: referenceId,
-        amount: Number(payload.amount),
-        currency: payload.currency,
+      const continued = await continueOneTimeContributionAuthorization({
+        memberWalletAddress: payload.member_wallet_address,
+        incomingPaymentId: payload.incoming_payment_id,
         continueGrant: {
           continueUri: session.continue_uri,
           continueAccessToken: decryptSecret(session.continue_access_token),
@@ -145,25 +146,12 @@ export async function GET(req: Request) {
         finish_nonce: session.finish_nonce,
         payload_json: JSON.stringify({
           ...payload,
-          incomingPaymentId: continued.incomingPaymentId,
-          paymentUrl: continued.paymentUrl,
+          outgoingPaymentId: continued.outgoingPaymentId,
         }),
         status: 'completed',
         error_message: '',
         updated_at: toClickHouseDateTime(new Date()),
       }])
-
-      await runCommand(
-        `
-        ALTER TABLE pending_contributions
-        UPDATE incoming_payment_id = {incoming_payment_id:String}
-        WHERE id = toUUID({id:String})
-        `,
-        {
-          incoming_payment_id: continued.incomingPaymentId,
-          id: referenceId,
-        }
-      )
 
       return redirectTo(req, '/profile', 'interaction_completed', referenceId)
     }

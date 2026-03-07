@@ -15,6 +15,33 @@ interface CreateRecurringBody {
   interval?: 'P1D' | 'P1W' | 'P1M'
 }
 
+interface OpenPaymentsErrorLike {
+  message?: string
+  description?: string
+  status?: number
+  code?: string
+}
+
+function formatOpenPaymentsError(err: unknown): string {
+  if (typeof err !== 'object' || err === null) {
+    return 'Internal error'
+  }
+
+  const e = err as OpenPaymentsErrorLike
+  const parts = [
+    e.message,
+    e.description,
+    typeof e.status === 'number' ? `status=${e.status}` : undefined,
+    e.code ? `code=${e.code}` : undefined,
+  ].filter((value): value is string => Boolean(value && value.trim().length > 0))
+
+  if (parts.length === 0) {
+    return 'Internal error'
+  }
+
+  return parts.join(' | ')
+}
+
 function addIntervalDate(from: Date, interval: 'P1D' | 'P1W' | 'P1M'): Date {
   const next = new Date(from)
   if (interval === 'P1D') {
@@ -139,7 +166,7 @@ export async function POST(req: Request) {
     }, { status: 201 })
   } catch (err: unknown) {
     console.error(err)
-    const message = err instanceof Error ? err.message : 'Internal error'
+    const message = formatOpenPaymentsError(err)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

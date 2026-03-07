@@ -233,6 +233,15 @@ npx ts-node scripts/seed.ts   # Seed demo data
 
 ---
 
+## Bug Guardrails (Do Not Regress)
+
+- Open Payments key parsing: `OPEN_PAYMENTS_PRIVATE_KEY` may be PEM text, escaped-PEM, base64 DER/PEM, or file path. Do not assume PEM-only input.
+- Do not hard-code Open Payments amount currency/scale (`USD`, `2`). Always use wallet-native `assetCode` and `assetScale` from wallet address metadata.
+- `DEMO_MODE=true` simulates payments (no real wallet popup or on-chain/testnet movement). UI should clearly indicate simulated success.
+- In Next/Turbopack runtime, `@interledger/open-payments` OpenAPI spec files may fail to resolve from bundled paths; keep `validateResponses: false` in authenticated client init for stability.
+
+---
+
 ## Demo Flow (for judges)
 
 1. Open landing page — 3D globe spins, LED marquee ticker shows live donations

@@ -1,22 +1,57 @@
 // Server Component — user wallet + contribution history
 import { queryRows } from '@/lib/clickhouse'
+import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import type { Contribution, UserWallet } from '@/types'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import WalletSetupForm from '@/components/WalletSetupForm'
 
-async function getHistory(): Promise<Contribution[]> {
+async function getUserContributions(userId: string): Promise<Contribution[]> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL ?? process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
-    const res = await fetch(`${baseUrl}/api/payments/history/all`, { cache: 'no-store' })
-    if (!res.ok) throw new Error('Failed')
-    return (await res.json()) as Contribution[]
+    const rows = await queryRows<{
+      id: string
+      pool_id: string
+      member_id: string
+      amount: number
+      currency: string
+      incoming_payment_id: string
+      contributed_at: string
+      status: string
+    }>(
+      `
+      SELECT
+        toString(c.id) AS id,
+        toString(c.pool_id) AS pool_id,
+        toString(c.member_id) AS member_id,
+        c.amount,
+        c.currency,
+        c.incoming_payment_id,
+        c.contributed_at,
+        c.status
+      FROM contributions c
+      ANY INNER JOIN (
+        SELECT id
+        FROM members
+        WHERE user_id = toUUID({user_id:String})
+          AND pool_id = toUUID({pool_id:String})
+          AND is_active = 1
+      ) m ON c.member_id = m.id
+      WHERE c.pool_id = toUUID({pool_id:String})
+      ORDER BY c.contributed_at DESC
+      LIMIT 50
+      `,
+      {
+        user_id: userId,
+        pool_id: GLOBAL_POOL_ID,
+      }
+    )
+
+    return rows as Contribution[]
   } catch {
     return []
   }
 }
 
-async function getWallet(userId?: string): Promise<UserWallet | null> {
-  if (!userId) return null
-
+async function getWallet(userId: string): Promise<UserWallet | null> {
   try {
     const rows = await queryRows<{
       id: string
@@ -54,17 +89,26 @@ async function getWallet(userId?: string): Promise<UserWallet | null> {
 
 export default async function ProfilePage() {
   const supabase = await createSupabaseServerClient()
-  const authPromise = supabase.auth.getUser()
-  const historyPromise = getHistory()
-  const { data: authData } = await authPromise
-  const walletPromise = getWallet(authData.user?.id)
-  const history: Contribution[] = await historyPromise
-  const wallet = await walletPromise
+  const { data: authData } = await supabase.auth.getUser()
   const user = authData.user
 
-  const displayName = typeof user?.user_metadata?.full_name === 'string'
+  if (!user) {
+    return (
+      <div className="max-w-3xl mx-auto px-6 py-12">
+        <h1 className="text-3xl font-bold mb-4">Profile</h1>
+        <p className="text-white/50">You must be signed in to view your profile.</p>
+      </div>
+    )
+  }
+
+  const [wallet, history] = await Promise.all([
+    getWallet(user.id),
+    getUserContributions(user.id),
+  ])
+
+  const displayName = typeof user.user_metadata?.full_name === 'string'
     ? user.user_metadata.full_name
-    : user?.email?.split('@')[0]
+    : user.email?.split('@')[0]
 
   return (
     <div className="max-w-3xl mx-auto px-6 py-12">
@@ -79,18 +123,15 @@ export default async function ProfilePage() {
           </div>
           <div className="flex justify-between">
             <span className="text-white/40">Email</span>
-            <span>{user?.email ?? '—'}</span>
-          </div>
-          <div className="flex justify-between gap-4">
-            <span className="text-white/40">Wallet</span>
-            <span className="font-mono text-right text-xs break-all">{wallet?.wallet_address ?? 'Not provisioned yet'}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-white/40">Wallet status</span>
-            <span className="capitalize">{wallet?.status ?? 'manual_required'}</span>
+            <span>{user.email ?? '—'}</span>
           </div>
         </div>
       </div>
+
+      <WalletSetupForm
+        currentWalletAddress={wallet?.wallet_address ?? null}
+        walletStatus={wallet?.status ?? null}
+      />
 
       <div className="bg-white/5 border border-white/10 rounded-xl p-6">
         <h2 className="font-semibold mb-4">Contribution History</h2>

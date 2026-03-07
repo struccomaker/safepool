@@ -155,11 +155,11 @@ export async function getLatestUserWalletBinding(userId: string): Promise<UserWa
 }
 
 export async function syncSupabaseUserToClickHouse(user: SupabaseUserLike): Promise<void> {
-  const existing = await queryRows<{ id: string }>(
+  const existing = await queryRows<{ row_exists: number }>(
     `
-    SELECT toString(id) AS id
+    SELECT 1 AS row_exists
     FROM users
-    WHERE id = toUUID({id:String})
+    WHERE users.id = toUUID({id:String})
     LIMIT 1
     `,
     { id: user.id }
