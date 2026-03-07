@@ -5,6 +5,7 @@ import {
   continueOneTimeContributionAuthorization,
   continueOutgoingPayment,
   continueRecurringContributionGrant,
+  formatOpenPaymentsError,
   pollOutgoingPaymentCompletion,
 } from '@/lib/open-payments'
 import { insertRows, queryRows, runCommand, toClickHouseDateTime } from '@/lib/clickhouse'
@@ -30,6 +31,7 @@ interface IncomingPayload {
   member_id: string
   member_wallet_address: string
   incoming_payment_id: string
+  quote_id: string
 }
 
 interface OutgoingPayload {
@@ -78,7 +80,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url)
   const flow = url.searchParams.get('flow') as CallbackFlow | null
   const interactRef = url.searchParams.get('interact_ref')
-  const nonce = url.searchParams.get('nonce')
+  const result = url.searchParams.get('result')
 
   const referenceId =
     flow === 'incoming'
@@ -87,8 +89,16 @@ export async function GET(req: Request) {
         ? url.searchParams.get('payout_id')
         : url.searchParams.get('recurring_id')
 
-  if (!flow || !referenceId || !interactRef || !nonce) {
+  if (!flow || !referenceId) {
     return NextResponse.json({ error: 'Missing required callback parameters' }, { status: 400 })
+  }
+
+  if (result === 'grant_rejected') {
+    return redirectTo(req, '/profile', 'grant_rejected', referenceId)
+  }
+
+  if (!interactRef) {
+    return NextResponse.json({ error: 'Missing interact_ref callback parameter' }, { status: 400 })
   }
 
   try {
@@ -120,19 +130,21 @@ export async function GET(req: Request) {
 
     const session = sessions[0]
 
-    if (session.finish_nonce !== nonce) {
-      return NextResponse.json({ error: 'Invalid callback nonce' }, { status: 400 })
-    }
+    const payload = JSON.parse(session.payload_json) as IncomingPayload | OutgoingPayload | RecurringPayload
 
     if (flow === 'incoming') {
-      const payload = JSON.parse(session.payload_json) as IncomingPayload
+      const incomingPayload = payload as IncomingPayload
+
+      if (!incomingPayload.quote_id) {
+        return NextResponse.json({ error: 'Missing quote_id for one-time payment continuation' }, { status: 400 })
+      }
+
       const continued = await continueOneTimeContributionAuthorization({
-        memberWalletAddress: payload.member_wallet_address,
-        incomingPaymentId: payload.incoming_payment_id,
+        memberWalletAddress: incomingPayload.member_wallet_address,
+        quoteId: incomingPayload.quote_id,
         continueGrant: {
           continueUri: session.continue_uri,
           continueAccessToken: decryptSecret(session.continue_access_token),
-          finishNonce: session.finish_nonce,
         },
         interactRef,
       })
@@ -145,7 +157,7 @@ export async function GET(req: Request) {
         continue_access_token: session.continue_access_token,
         finish_nonce: session.finish_nonce,
         payload_json: JSON.stringify({
-          ...payload,
+          ...incomingPayload,
           outgoingPaymentId: continued.outgoingPaymentId,
         }),
         status: 'completed',
@@ -157,21 +169,20 @@ export async function GET(req: Request) {
     }
 
     if (flow === 'outgoing') {
-      const payload = JSON.parse(session.payload_json) as OutgoingPayload
+      const outgoingPayload = payload as OutgoingPayload
       const continued = await continueOutgoingPayment({
-        recipientWalletAddress: payload.recipientWalletAddress,
-        amount: Number(payload.amount),
-        currency: payload.currency,
+        recipientWalletAddress: outgoingPayload.recipientWalletAddress,
+        amount: Number(outgoingPayload.amount),
+        currency: outgoingPayload.currency,
         metadata: {
           payoutId: referenceId,
-          poolId: payload.poolId,
-          disasterId: payload.disasterId,
-          memberId: payload.memberId,
+          poolId: outgoingPayload.poolId,
+          disasterId: outgoingPayload.disasterId,
+          memberId: outgoingPayload.memberId,
         },
         continueGrant: {
           continueUri: session.continue_uri,
           continueAccessToken: decryptSecret(session.continue_access_token),
-          finishNonce: session.finish_nonce,
         },
         interactRef,
       })
@@ -188,7 +199,7 @@ export async function GET(req: Request) {
         continue_access_token: session.continue_access_token,
         finish_nonce: session.finish_nonce,
         payload_json: JSON.stringify({
-          ...payload,
+          ...outgoingPayload,
           outgoingPaymentId: continued.outgoingPaymentId,
           payoutState: finalStatus.state,
         }),
@@ -217,25 +228,24 @@ export async function GET(req: Request) {
       return redirectTo(req, '/dashboard', finalStatus.state, referenceId)
     }
 
-    const payload = JSON.parse(session.payload_json) as RecurringPayload
+    const recurringPayload = payload as RecurringPayload
     const finalized = await continueRecurringContributionGrant({
       continueGrant: {
         continueUri: session.continue_uri,
         continueAccessToken: decryptSecret(session.continue_access_token),
-        finishNonce: session.finish_nonce,
       },
       interactRef,
     })
 
     await insertRows('recurring_contributions', [{
       id: referenceId,
-      member_id: payload.member_id,
-      pool_id: payload.pool_id,
-      member_wallet_address: payload.member_wallet_address,
-      amount: Number(payload.amount),
-      currency: payload.currency,
-      interval: payload.interval,
-      next_payment_date: toClickHouseDateTime(addIntervalDate(new Date(), payload.interval)),
+      member_id: recurringPayload.member_id,
+      pool_id: recurringPayload.pool_id,
+      member_wallet_address: recurringPayload.member_wallet_address,
+      amount: Number(recurringPayload.amount),
+      currency: recurringPayload.currency,
+      interval: recurringPayload.interval,
+      next_payment_date: toClickHouseDateTime(addIntervalDate(new Date(), recurringPayload.interval)),
       access_token: encryptSecret(finalized.accessToken),
       manage_uri: encryptSecret(finalized.manageUri),
       status: 'active',
@@ -309,7 +319,7 @@ export async function GET(req: Request) {
       console.error('Failed to persist callback failure state', nestedErr)
     }
 
-    const message = err instanceof Error ? err.message : 'Internal error'
+    const message = formatOpenPaymentsError(err)
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

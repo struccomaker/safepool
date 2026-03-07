@@ -132,6 +132,13 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
       return
     }
 
+    if (paymentState === 'grant_rejected') {
+      setShowDonationModal(true)
+      setDonationStep('error')
+      setDonationError('Payment approval was rejected in wallet. No funds were transferred.')
+      return
+    }
+
     if (paymentState === 'recurring_active') {
       setShowDonationModal(true)
       setDonationStep('success')

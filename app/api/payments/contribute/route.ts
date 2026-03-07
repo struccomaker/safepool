@@ -15,6 +15,11 @@ interface ContributeRequest {
   currency: string
 }
 
+interface CreateOneTimeAuthorizationWithQuote extends Record<string, unknown> {
+  mode: 'interaction_required'
+  quoteId?: string
+}
+
 interface OpenPaymentsErrorLike {
   message?: string
   description?: string
@@ -112,6 +117,8 @@ export async function POST(req: NextRequest) {
     })
 
     if (authorization.mode === 'interaction_required') {
+      const maybeQuoteId = (authorization as unknown as CreateOneTimeAuthorizationWithQuote).quoteId
+
       await insertRows('payment_grant_sessions', [{
         id: crypto.randomUUID(),
         flow: 'incoming',
@@ -126,6 +133,7 @@ export async function POST(req: NextRequest) {
           member_id: members[0].id,
           member_wallet_address: memberWallet,
           incoming_payment_id: payment.incomingPaymentId,
+          quote_id: typeof maybeQuoteId === 'string' ? maybeQuoteId : '',
         }),
         status: 'pending',
       }])
