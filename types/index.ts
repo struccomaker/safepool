@@ -123,6 +123,46 @@ export interface User {
   created_at: string
 }
 
+export interface UserWallet {
+  id: string
+  user_id: string
+  wallet_address: string
+  provider: string
+  status: 'provisioned' | 'verified' | 'manual_required'
+  is_default: number
+  created_at: string
+}
+
+export interface PaymentStatus {
+  id: string
+  type: 'incoming' | 'outgoing'
+  state: 'pending' | 'processing' | 'completed' | 'failed'
+  receivedAmount?: {
+    value: string
+    assetCode: string
+  }
+  debitAmount?: {
+    value: string
+    assetCode: string
+  }
+}
+
+export interface RecurringContribution {
+  id: string
+  member_id: string
+  pool_id: string
+  member_wallet_address: string
+  amount: number
+  currency: string
+  interval: string
+  next_payment_date: string
+  access_token: string
+  manage_uri: string
+  status: 'active' | 'paused' | 'cancelled'
+  created_at: string
+  updated_at: string
+}
+
 // ─── Analytics / Materialized Views ──────────────────────────────────────────
 
 export interface PoolBalance {
@@ -158,7 +198,7 @@ export interface DisasterHeatmapPoint {
 // ─── API Request/Response Shapes ──────────────────────────────────────────────
 
 export interface JoinRequest {
-  wallet_address: string
+  wallet_address?: string
   location_lat: number
   location_lon: number
   household_size?: number

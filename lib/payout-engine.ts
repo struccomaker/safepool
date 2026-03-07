@@ -1,5 +1,6 @@
-import client from '@/lib/clickhouse'
-import { createOutgoingPayment } from '@/lib/open-payments'
+import client, { insertRows } from '@/lib/clickhouse'
+import { createOutgoingPayment, pollOutgoingPaymentCompletion } from '@/lib/open-payments'
+import { encryptSecret } from '@/lib/secret-crypto'
 import type { Pool, Member, DisasterEvent } from '@/types'
 
 const SEVERITY_MULTIPLIER: Record<string, number> = {
@@ -81,11 +82,60 @@ export async function processPayouts({
         amount,
         currency: pool.currency,
         metadata: {
+          payoutId,
           poolId: pool.id,
           disasterId: disaster.id,
           memberId: member.id,
         },
       })
+
+      if (result.needsInteraction) {
+        await insertRows('payment_grant_sessions', [{
+          id: crypto.randomUUID(),
+          flow: 'outgoing',
+          reference_id: payoutId,
+          continue_uri: result.continueUri,
+          continue_access_token: encryptSecret(result.continueAccessToken),
+          finish_nonce: result.finishNonce,
+          payload_json: JSON.stringify({
+            recipientWalletAddress: member.wallet_address,
+            amount,
+            currency: pool.currency,
+            poolId: pool.id,
+            disasterId: disaster.id,
+            memberId: member.id,
+            redirectUrl: result.redirectUrl,
+          }),
+          status: 'failed',
+          error_message: 'Interaction-required outgoing payout is not supported in unattended disaster cron flow',
+        }])
+
+        payoutRows.push({
+          id: payoutId,
+          pool_id: pool.id,
+          disaster_event_id: disaster.id,
+          member_id: member.id,
+          amount,
+          currency: pool.currency,
+          outgoing_payment_id: result.outgoingPaymentId,
+          distribution_rule: pool.distribution_model,
+          status: 'failed',
+          failure_reason: 'Payout requires wallet authorization interaction; use DEMO_MODE or pre-authorized grants',
+        })
+        continue
+      }
+
+      let finalStatus = result.status
+      let failureReason = ''
+
+      if (result.status === 'processing') {
+        const polled = await pollOutgoingPaymentCompletion({ paymentId: result.outgoingPaymentId })
+        finalStatus = polled.state === 'pending' ? 'processing' : polled.state
+      }
+
+      if (finalStatus === 'failed') {
+        failureReason = 'Outgoing payment failed'
+      }
 
       payoutRows.push({
         id: payoutId,
@@ -96,10 +146,13 @@ export async function processPayouts({
         currency: pool.currency,
         outgoing_payment_id: result.outgoingPaymentId,
         distribution_rule: pool.distribution_model,
-        status: 'completed',
-        failure_reason: '',
+        status: finalStatus,
+        failure_reason: failureReason,
       })
-      successCount++
+
+      if (finalStatus === 'completed') {
+        successCount++
+      }
     } catch (err: unknown) {
       const reason = err instanceof Error ? err.message : 'Unknown error'
       payoutRows.push({

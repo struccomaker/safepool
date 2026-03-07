@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
 export async function GET(request: Request) {
   const url = new URL(request.url)
@@ -11,6 +12,18 @@ export async function GET(request: Request) {
   if (code) {
     const supabase = await createSupabaseServerClient()
     await supabase.auth.exchangeCodeForSession(code)
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser()
+
+    if (user) {
+      try {
+        await syncSupabaseUserToClickHouse(user)
+      } catch (syncError: unknown) {
+        console.error('Failed syncing Supabase user to ClickHouse', syncError)
+      }
+    }
   }
 
   const redirectPath = popupMode ? '/auth/popup-complete' : safeNextPath

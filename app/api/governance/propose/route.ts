@@ -1,8 +1,12 @@
+export const dynamic = 'force-dynamic'
+
 import { NextResponse } from 'next/server'
 import { type NextRequest } from 'next/server'
 import client from '@/lib/clickhouse'
 import type { ProposeRequest } from '@/types'
+import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,6 +19,8 @@ export async function POST(req: NextRequest) {
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    await syncSupabaseUserToClickHouse(user)
 
     const body = await req.json() as ProposeRequest
 
@@ -29,7 +35,7 @@ export async function POST(req: NextRequest) {
       table: 'proposals',
       values: [{
         id,
-        pool_id: body.pool_id,
+        pool_id: GLOBAL_POOL_ID,
         proposed_by: user.id,
         title: body.title,
         description: body.description,

@@ -49,6 +49,20 @@ async function seed() {
   })
   console.log('✓ Users inserted')
 
+  await client.insert({
+    table: 'user_wallets',
+    values: USER_IDS.map((userId, i) => ({
+      id: `90000000-0000-0000-0000-00000000000${i + 1}`,
+      user_id: userId,
+      wallet_address: `https://wallet.interledger-test.dev/demo${i + 1}`,
+      provider: 'wallet.interledger-test.dev',
+      status: 'provisioned',
+      is_default: 1,
+    })),
+    format: 'JSONEachRow',
+  })
+  console.log('✓ User wallets inserted')
+
   // Pool
   await client.insert({
     table: 'pools',
