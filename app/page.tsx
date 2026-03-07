@@ -6,6 +6,7 @@ import LeftConfigSidebar from '@/components/dashboard/LeftConfigSidebar'
 import RightConfigSidebar from '@/components/dashboard/RightConfigSidebar'
 import TopNavigationMenu from '@/components/dashboard/TopNavigationMenu'
 import EarthquakeDemoOverlay from '@/components/EarthquakeDemoOverlay'
+import TildeHelpPanel from '@/components/dashboard/TildeHelpPanel'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 
@@ -46,6 +47,7 @@ export default function DashboardPage() {
       <div className="relative h-[100dvh] w-full overflow-hidden bg-[#050508] text-white">
         <GlobeCenterPanel onDrilldownChange={setIsDrilldownOpen} onGlobeReadyChange={setIsGlobeReady} />
         <EarthquakeDemoOverlay />
+        <TildeHelpPanel />
 
         {!isGlobeReady && <PageLoader overlay />}
 
