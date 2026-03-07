@@ -11,12 +11,13 @@ import { getBrazilStatus, type BrazilStatus } from '@/lib/brazil-eq-state'
 
 // Re-shape shared pins into the format this component expects
 const GLOBAL_DISASTERS = DISASTER_PINS.map((p) => ({
-  id:       p.id,
-  label:    p.label,
-  location: p.location,
-  coords:   p.coords,   // [lng, lat] — GeoJSON order
-  dotColor: p.dotColor,
-  rings:    p.rings2d,
+  id:          p.id,
+  label:       p.label,
+  location:    p.location,
+  coords:      p.coords,   // [lng, lat] — GeoJSON order
+  dotColor:    p.dotColor,
+  rings:       p.rings2d,
+  countryCode: p.countryCode,
 }))
 
 function brazilDotColor(status: BrazilStatus): string {
@@ -91,14 +92,16 @@ export default function CountryDrilldownMap({ country, onExit }: CountryDrilldow
   }, [])
 
   const initialCenter = useMemo((): [number, number] => {
-    // Include Brazil pin if active so clicking near South America snaps to it
+    const code = country.code.toUpperCase()
     const currentBrazil = getBrazilStatus()
+
     const all = currentBrazil
-      ? [...GLOBAL_DISASTERS, { ...BRAZIL_EQ_PIN, dotColor: brazilDotColor(currentBrazil), rings: BRAZIL_EQ_PIN.rings2d }]
+      ? [...GLOBAL_DISASTERS, { ...BRAZIL_EQ_PIN, dotColor: brazilDotColor(currentBrazil), rings: BRAZIL_EQ_PIN.rings2d, countryCode: BRAZIL_EQ_PIN.countryCode }]
       : GLOBAL_DISASTERS
 
     if (all.length === 0) return [country.center.lng, country.center.lat]
 
+    // Find the globally nearest disaster
     const refLng = country.center.lng
     const refLat = country.center.lat
     let nearest = all[0]
@@ -113,6 +116,14 @@ export default function CountryDrilldownMap({ country, onExit }: CountryDrilldow
         nearest = d
       }
     }
+
+    // Snap if the disaster belongs to this country (by code) OR is within ~4 degrees
+    // (handles geographic-center → epicenter offset within a single country).
+    // If it's a clearly different country (code mismatch AND far away), stay on the
+    // country the user actually clicked.
+    const codeMatches = nearest.countryCode === code
+    const withinCountry = nearestDist < 16 // 4° radius squared
+    if (!codeMatches && !withinCountry) return [country.center.lng, country.center.lat]
 
     return nearest.coords
   }, [country])
