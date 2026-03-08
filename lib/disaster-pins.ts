@@ -41,6 +41,13 @@ export interface DisasterPin {
   payoutAmount: number
   /** Mock number of donors whose contributions funded this payout */
   donorCount: number
+  /** Mock impact metrics — scaled to severity */
+  impact: {
+    injuries: number
+    deaths: number
+    displaced: number
+    propertyDamageUsd: number
+  }
 }
 
 export const DISASTER_PINS: DisasterPin[] = [
@@ -65,6 +72,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     status: 'Monitoring',
     payoutAmount: 45200,
     donorCount: 347,
+    impact: { injuries: 1243, deaths: 87, displaced: 34200, propertyDamageUsd: 128_000_000 },
   },
   {
     id: 'jakarta-flood',
@@ -87,6 +95,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     status: 'Monitoring',
     payoutAmount: 28750,
     donorCount: 212,
+    impact: { injuries: 312, deaths: 23, displaced: 89500, propertyDamageUsd: 54_000_000 },
   },
   {
     id: 'kathmandu-eq',
@@ -109,6 +118,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     status: 'Monitoring',
     payoutAmount: 18400,
     donorCount: 158,
+    impact: { injuries: 567, deaths: 41, displaced: 15800, propertyDamageUsd: 42_000_000 },
   },
   {
     id: 'bangkok-flood',
@@ -131,6 +141,7 @@ export const DISASTER_PINS: DisasterPin[] = [
     status: 'Monitoring',
     payoutAmount: 11600,
     donorCount: 89,
+    impact: { injuries: 78, deaths: 2, displaced: 12400, propertyDamageUsd: 18_000_000 },
   },
 ]
 
@@ -156,6 +167,7 @@ export const BRAZIL_EQ_PIN: DisasterPin = {
   status: 'Triggered',
   payoutAmount: 12450,
   donorCount: 283,
+  impact: { injuries: 2100, deaths: 156, displaced: 67000, propertyDamageUsd: 310_000_000 },
 }
 
 /**

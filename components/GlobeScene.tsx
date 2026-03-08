@@ -373,9 +373,9 @@ export default function GlobeScene({
 
   const monoRings = useMemo(
     () =>
-      RINGS.map((ring, index) => ({
+      RINGS.map((ring) => ({
         ...ring,
-        color: () => (index % 2 === 0 ? '#ffffff' : '#a1a1aa'),
+        // Use the disaster's actual color so globe rings match the 2D drilldown view
       })),
     []
   )

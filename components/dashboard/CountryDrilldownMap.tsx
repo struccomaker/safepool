@@ -6,7 +6,7 @@ import type { Map as MapLibreMap } from 'maplibre-gl'
 import type { GlobeCountrySelection } from '@/components/GlobeScene'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { DISASTER_PINS, BRAZIL_EQ_PIN } from '@/lib/disaster-pins'
+import { DISASTER_PINS, BRAZIL_EQ_PIN, type DisasterPin } from '@/lib/disaster-pins'
 import { getBrazilStatus, type BrazilStatus } from '@/lib/brazil-eq-state'
 
 // Re-shape shared pins into the format this component expects
@@ -75,6 +75,7 @@ export default function CountryDrilldownMap({ country, onExit }: CountryDrilldow
   const brazilPulseRef   = useRef<number | null>(null)
   const [ready, setReady]           = useState(false)
   const [brazilStatus, setBrazilStatus] = useState<BrazilStatus>(getBrazilStatus)
+  const [selectedDisaster, setSelectedDisaster] = useState<DisasterPin | null>(null)
 
   // Keep module-level var in sync so late mounts read current status
   useEffect(() => {
@@ -373,52 +374,110 @@ export default function CountryDrilldownMap({ country, onExit }: CountryDrilldow
     return () => { cancelAnimationFrame(raf); brazilPulseRef.current = null }
   }, [ready, brazilStatus])
 
+  const handleSelectDisaster = (pin: DisasterPin) => {
+    setSelectedDisaster(pin)
+    mapRef.current?.easeTo({ center: pin.coords, zoom: 10, duration: 900 })
+  }
+
   return (
     <div className="relative h-full w-full overflow-hidden">
       <div className="h-full w-full" ref={mapContainerRef} />
 
-      {/* Disaster legend */}
-      <div className="absolute left-4 top-4 z-20 w-[260px] rounded-xl border border-white/20 bg-black/75 p-4 backdrop-blur">
-        <div className="pointer-events-none mb-3 flex items-center gap-2">
-          <Badge variant="outline" className="border-white/30 text-white/80">Live Events</Badge>
-          <p className="text-xs uppercase tracking-[0.18em] text-white/50">
-            {ready ? `${GLOBAL_DISASTERS.length + (brazilStatus !== null ? 1 : 0)} active` : 'Loading…'}
-          </p>
-        </div>
+      {/* Left column: mock data panel + live events — positioned below logo */}
+      <div className="absolute left-4 top-[4.5rem] z-20 flex w-[260px] flex-col gap-3">
 
-        <div className="space-y-2">
-          {brazilStatus !== null && (
-            <button
-              onClick={() => mapRef.current?.easeTo({ center: BRAZIL_EQ_PIN.coords, zoom: 10, duration: 900 })}
-              className="flex w-full items-start gap-2.5 rounded-lg bg-white/5 px-3 py-2 text-left transition-colors hover:bg-white/10"
-            >
-              <span
-                className="mt-1 h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: brazilDotColor(brazilStatus) }}
-              />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-white">{BRAZIL_EQ_PIN.label}</p>
-                <p className="truncate text-xs text-white/50">{BRAZIL_EQ_PIN.location}</p>
+        {/* Impact data panel — shown when a disaster is selected */}
+        {selectedDisaster && (
+          <div className="rounded-xl border border-white/20 bg-black/80 p-4 backdrop-blur">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: selectedDisaster.dotColor }} />
+                <p className="text-sm font-semibold text-white">{selectedDisaster.label}</p>
               </div>
-            </button>
-          )}
+              <button onClick={() => setSelectedDisaster(null)} className="text-white/40 transition-colors hover:text-white/80">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-white/50">{selectedDisaster.location}</p>
 
-          {GLOBAL_DISASTERS.map(d => (
-            <button
-              key={d.id}
-              onClick={() => mapRef.current?.easeTo({ center: d.coords, zoom: 10, duration: 900 })}
-              className="flex w-full items-start gap-2.5 rounded-lg bg-white/5 px-3 py-2 text-left transition-colors hover:bg-white/10"
-            >
-              <span
-                className="mt-1 h-2 w-2 shrink-0 rounded-full"
-                style={{ backgroundColor: d.dotColor }}
-              />
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-white">{d.label}</p>
-                <p className="truncate text-xs text-white/50">{d.location}</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-red-500/10 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-red-300/70">Deaths</p>
+                <p className="text-lg font-bold text-red-400">{selectedDisaster.impact.deaths.toLocaleString()}</p>
               </div>
-            </button>
-          ))}
+              <div className="rounded-lg bg-orange-500/10 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-orange-300/70">Injuries</p>
+                <p className="text-lg font-bold text-orange-400">{selectedDisaster.impact.injuries.toLocaleString()}</p>
+              </div>
+              <div className="rounded-lg bg-amber-500/10 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-amber-300/70">Displaced</p>
+                <p className="text-lg font-bold text-amber-400">{selectedDisaster.impact.displaced.toLocaleString()}</p>
+              </div>
+              <div className="rounded-lg bg-white/5 px-2.5 py-2">
+                <p className="text-[10px] uppercase tracking-wider text-white/50">Property Damage</p>
+                <p className="text-lg font-bold text-white/90">${(selectedDisaster.impact.propertyDamageUsd / 1_000_000).toFixed(0)}M</p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-2.5">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider text-green-300/70">Pool Payout</p>
+                <p className="text-sm font-semibold text-green-400">${selectedDisaster.payoutAmount.toLocaleString()}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] uppercase tracking-wider text-white/50">Severity</p>
+                <p className="text-sm font-semibold text-white">{selectedDisaster.severity}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Disaster legend */}
+        <div className="rounded-xl border border-white/20 bg-black/75 p-4 backdrop-blur">
+          <div className="pointer-events-none mb-3 flex items-center gap-2">
+            <Badge variant="outline" className="border-white/30 text-white/80">Live Events</Badge>
+            <p className="text-xs uppercase tracking-[0.18em] text-white/50">
+              {ready ? `${GLOBAL_DISASTERS.length + (brazilStatus !== null ? 1 : 0)} active` : 'Loading\u2026'}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            {brazilStatus !== null && (
+              <button
+                onClick={() => handleSelectDisaster({ ...BRAZIL_EQ_PIN, dotColor: brazilDotColor(brazilStatus) })}
+                className={`flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${selectedDisaster?.id === BRAZIL_EQ_PIN.id ? 'bg-white/15 ring-1 ring-white/20' : 'bg-white/5 hover:bg-white/10'}`}
+              >
+                <span
+                  className="mt-1 h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: brazilDotColor(brazilStatus) }}
+                />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-white">{BRAZIL_EQ_PIN.label}</p>
+                  <p className="truncate text-xs text-white/50">{BRAZIL_EQ_PIN.location}</p>
+                </div>
+              </button>
+            )}
+
+            {GLOBAL_DISASTERS.map(d => {
+              const pin = DISASTER_PINS.find(p => p.id === d.id)!
+              return (
+                <button
+                  key={d.id}
+                  onClick={() => handleSelectDisaster(pin)}
+                  className={`flex w-full items-start gap-2.5 rounded-lg px-3 py-2 text-left transition-colors ${selectedDisaster?.id === d.id ? 'bg-white/15 ring-1 ring-white/20' : 'bg-white/5 hover:bg-white/10'}`}
+                >
+                  <span
+                    className="mt-1 h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: d.dotColor }}
+                  />
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-white">{d.label}</p>
+                    <p className="truncate text-xs text-white/50">{d.location}</p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </div>
       </div>
 
