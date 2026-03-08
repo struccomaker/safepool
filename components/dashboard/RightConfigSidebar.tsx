@@ -130,15 +130,17 @@ export default function RightConfigSidebar() {
           return
         }
 
-        const mapped: DonationItem[] = payload.donations.map((row) => ({
-          id: row.id,
-          member: row.member,
-          country: row.country,
-          isAnonymous: Boolean(row.is_anonymous),
-          amount: Number(row.amount),
-          currency: row.currency,
-          receivedAt: new Date(row.contributed_at).getTime(),
-        }))
+        const mapped: DonationItem[] = payload.donations
+          .filter((row) => Number(row.amount) > 0)
+          .map((row) => ({
+            id: row.id,
+            member: row.member,
+            country: row.country,
+            isAnonymous: Boolean(row.is_anonymous),
+            amount: Number(row.amount),
+            currency: row.currency,
+            receivedAt: new Date(row.contributed_at).getTime(),
+          }))
 
         setDonations(mapped.slice(0, MAX_DONATIONS))
         setPoolBalance(Number(payload.current_pool_balance))
