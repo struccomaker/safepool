@@ -1,6 +1,6 @@
 # SafePool Project Snapshot
 
-Current state of the SafePool codebase (HACKOMANIA 2026), including stack, coding practices, shipped features, and active routes.
+Current state of the SafePool codebase (HACKOMANIA 2026), based on the routes and files currently present in this repository.
 
 ---
 
@@ -9,111 +9,146 @@ Current state of the SafePool codebase (HACKOMANIA 2026), including stack, codin
 | Layer | Technology |
 |-------|------------|
 | Framework | Next.js 16.1.6 (App Router), React 18, TypeScript |
-| Styling/UI | Tailwind CSS, shadcn/ui components |
-| Database/Analytics | Supabase Postgres (transactional) + ClickHouse Cloud (disasters/analytics) |
-| Payments | Interledger Open Payments via `@interledger/open-payments` |
-| Auth | Supabase Auth (`@supabase/ssr`, `@supabase/supabase-js`) with Google OAuth |
-| Maps/Geo | MapLibre GL + Leaflet + Turf |
-| Visualization | react-globe.gl + Three.js, Recharts |
+| Styling/UI | Tailwind CSS, shadcn/ui-style components |
+| Auth + Transactional Data | Supabase Auth + Supabase Postgres (`@supabase/ssr`, `@supabase/supabase-js`) |
+| Analytics/Event Mirror | ClickHouse Cloud (`@clickhouse/client`) |
+| Payments | Interledger Open Payments (`@interledger/open-payments`) |
+| Maps/Geo | react-globe.gl + Three.js, MapLibre GL, Leaflet |
+| Charts | Recharts + TanStack Query |
 | Realtime | Server-Sent Events (SSE) |
-| Email | Nodemailer SMTP |
+| Notifications | Nodemailer SMTP |
 
 ---
 
-## Current Coding Practices
+## Architecture Notes
 
-- **Server-first with client islands:** Interactive/UI-heavy components are client components; data/query routes stay server-side.
-- **Consistent API error handling:** Most route handlers wrap logic in `try/catch` and return JSON status codes.
-- **Dynamic routes for live endpoints:** `export const dynamic = 'force-dynamic'` is used in SSE and cron routes.
-- **No-cache live fetches:** `cache: 'no-store'` used for real-time data fetches.
-- **Split persistence by workload:** Supabase Postgres is source of truth for transactional flows; ClickHouse is reserved for disaster processing and analytics queries.
-- **Input validation on critical writes:** UUID checks, wallet URL validation in payment/member routes.
-- **Fallback-first integration:** Open Payments routes support demo fallback when grants/config unavailable.
-- **Environment-aware auth redirects:** OAuth uses runtime origin for localhost/domain and callback uses forwarded host/proto in deployment to avoid cross-origin bounce issues.
-- **Canonical test wallet addressing:** Use `https://ilp.interledger-test.dev/<walletName>` for `POOL_WALLET_ADDRESS` and member wallet addresses; `https://wallet.interledger-test.dev` is UI-only.
-- **Payment lifecycle hardening:** Incoming/outgoing callbacks, status polling, and recurring cron flows are implemented as first-class backend routes.
-- **Encrypted sensitive payment state:** Stored Open Payments continuation/access tokens are encrypted at rest before persistence.
-- **Unattended payout safety:** Interaction-required outgoing payouts are marked failed in cron flow to avoid indefinite pending states.
+- **Single global pool model:** The platform enforces one global fund via `GLOBAL_POOL_ID` in `lib/global-pool.ts`.
+- **Split persistence:** Supabase is the system of record for users, memberships, wallet bindings, sessions, and governance; ClickHouse is used for disaster and analytics/event workloads.
+- **Supabase-first auth:** Main auth flow is Supabase OAuth (`app/auth/callback/route.ts`); legacy NextAuth endpoint is intentionally deprecated and returns `410`.
+- **Payments are grant-session based:** Contribution, recurring, and payout flows persist Open Payments grant/session state; sensitive continuation/access data is encrypted at rest.
+- **Cron-driven automation:** Disaster polling, payout processing, and recurring processing run through protected cron routes using a bearer secret.
+- **Demo-friendly behavior:** The app includes manual and mock disaster/payment triggers and UI demo overlays/hotkeys for live presentations.
 
 ---
 
-## Current Features
+## Major User-Facing Surfaces
 
-### Core
-- **Immersive globe landing/app shell** — Interactive 3D globe with country hover/click and drill-down entry (`components/GlobeScene.tsx`, `components/dashboard/GlobeCenterPanel.tsx`, `components/dashboard/CountryDrilldownMap.tsx`)
-- **Unified disaster data source** — `lib/disaster-pins.ts` is the single source of truth for all 4 demo disasters (Manila M6.5, Jakarta Flood, Kathmandu M5.8, Bangkok Flood). Carries `coords`, `dotColor`, `rings2d`, `ring3d`, `eventType`, `severity`, `source`, `status`, and `payoutAmount`. Globe rings, left sidebar, drilldown map, and payout cylinders all derive from this one file.
-- **Payout cylinders on globe** — Green (`#22c55e`) 3D cylinders rendered at each disaster epicenter via `pointsData`. Height scales with mock `payoutAmount` (`altitude = 0.03 + (amount/50000) * 0.04`), so larger payouts produce visibly taller columns (`components/GlobeScene.tsx`).
-- **Drilldown map snaps to epicenter** — On country click, `CountryDrilldownMap` snaps to the geographically nearest disaster pin rather than the country's geographic centroid, resolving ISO-A2 vs A3 code mismatch between the GeoJSON and `DISASTER_PINS` (`components/dashboard/CountryDrilldownMap.tsx`).
-- **Left sidebar synced to globe** — `LeftConfigSidebar` imports `DISASTER_PINS` and renders the same 4 events the globe shows, including severity colour-coded by `dotColor` and red-tinted badge for `Triggered` status (`components/dashboard/LeftConfigSidebar.tsx`).
-- **Godzilla interaction layer (demo UX)** — Right-click spawn on globe surface, click-to-clear, keyboard controls (`W` forward, `A/D` rotate), optional FPS overlay (`~`), and top-nav mini preview state sync (`components/GlobeScene.tsx`, `components/dashboard/TopNavigationMenu.tsx`)
-- **Auth UX polish** — One-time welcome overlay after successful OAuth callback (`auth_welcome` signal + login intent gating), with click-to-dismiss and fade-out (`components/dashboard/TopNavigationMenu.tsx`, `app/auth/callback/route.ts`)
-- **Modal UX consistency** — Donation modal now closes on backdrop click, matching governance/voting modals (`components/dashboard/TopNavigationMenu.tsx`)
-- **Global emergency fund model** — Single global pool architecture (`lib/global-pool.ts`, `app/api/global/*`)
-- **Contribution and payout backend** — Open Payments contribute/confirm/callback/status + recurring and payout cron flows (`app/api/payments/*`, `app/api/recurring/create/route.ts`, `app/api/cron/*`)
-- **Transactional backend migrated to Supabase** — Users, wallets, members, payment sessions, pending contributions, confirmed contributions, recurring contribution schedules, proposals, votes, and payout status cache run on Supabase tables (`app/api/wallet/me/route.ts`, `app/api/members/join/route.ts`, `app/api/payments/*`, `app/api/recurring/create/route.ts`, `app/api/cron/process-recurring/route.ts`, `app/api/governance/*`)
-- **Payment continuation + status APIs** — Callback continuation and authenticated payment status checks (`app/api/payments/callback/route.ts`, `app/api/payments/status/route.ts`)
-- **Wallet onboarding pipeline** — Canonical user wallet fetch/update endpoint (`app/api/wallet/me/route.ts`)
-- **Recurring contributions** — Recurring grant creation + scheduled processing (`app/api/recurring/create/route.ts`, `app/api/cron/process-recurring/route.ts`)
-- **Disaster ingestion & trigger processing** — Polls USGS/GDACS/OWM and processes payouts via cron (`app/api/cron/poll-disasters/route.ts`, `app/api/cron/process-payouts/route.ts`)
-- **Manual disaster simulation** — Manual event creation with immediate trigger evaluation (`app/api/disasters/manual-trigger/route.ts`)
-- **Governance backend** — Proposal and voting APIs (`app/api/governance/*`, `app/api/global/governance/proposals/route.ts`)
-- **Analytics backend** — Fund balance, contribution trend, payout stats, disaster-map APIs (`app/api/analytics/*`)
-- **SSE contribution stream** — Backend endpoint for live ticker (`app/api/sse/contributions/route.ts`)
-- **Auth flow** — Supabase OAuth callback + protected profile page (`app/auth/callback/route.ts`, `app/profile/page.tsx`)
-- **Legacy auth endpoint retired** — NextAuth handler remains only as explicit deprecation response (`app/api/auth/[...nextauth]/route.ts`)
+- **Main experience (`/`):** 3D globe, drilldown map, sidebars, modals, governance and donation interactions (`app/page.tsx`, `components/GlobeScene.tsx`, `components/dashboard/*`).
+- **Profile experience (`/profile`):** authenticated user profile, wallet, and account-related details (`app/profile/page.tsx`).
+- **OAuth popup completion:** popup helper page for OAuth flow completion (`app/auth/popup-complete/page.tsx`).
+
+Notable UI components:
+
+- `components/GlobeScene.tsx`
+- `components/dashboard/CountryDrilldownMap.tsx`
+- `components/dashboard/TopNavigationMenu.tsx`
+- `components/dashboard/LeftConfigSidebar.tsx`
+- `components/dashboard/RightConfigSidebar.tsx`
+- `components/dashboard/GovernanceModal.tsx`
+- `components/dashboard/VotingModal.tsx`
+- `components/EarthquakeDemoOverlay.tsx`
+- `components/WalletSetupForm.tsx`
 
 ---
 
 ## Canonical Routes
 
-The app is now **single-pool + single-map-first**. The only map entry page is the root route (`/`), and multi-pool routes are removed.
-
 ### App Routes
 
-- `/` — Main map page (primary and only map entry)
-- `/profile` — User profile (protected)
-- `/auth/callback` — Supabase OAuth callback handler
-- `/auth/popup-complete` — OAuth popup completion
+- `/` - Main map/dashboard entry
+- `/profile` - Authenticated profile page
+- `/auth/callback` - Supabase OAuth callback handler
+- `/auth/popup-complete` - OAuth popup completion page
 
 ### API Routes
 
-- `/api/global/pool` — Global pool details
-- `/api/global/members` — Global pool members
-- `/api/global/governance/proposals` — Global proposals list
-- `/api/global/payments/history` — Global contribution history
-- `/api/global/disasters/check` — Recent payout/disaster trigger check
-- `/api/payments/contribute` — Create Open Payments incoming payment
-- `/api/payments/confirm` — Confirm contribution + persist + email
-- `/api/payments/callback` — Continue interactive Open Payments grants (incoming/outgoing/recurring)
-- `/api/payments/status` — Authenticated status lookup for contribution/payout payments
-- `/api/members/join` — Join global pool
-- `/api/wallet/me` — Read/update the authenticated user's canonical wallet binding
-- `/api/governance/propose` — Submit proposal
-- `/api/governance/vote` — Cast vote
-- `/api/disasters` — List disaster events
-- `/api/disasters/manual-trigger` — Manual disaster simulation
-- `/api/cron/poll-disasters` — Poll disaster providers
-- `/api/cron/process-payouts` — Run payout processor
-- `/api/recurring/create` — Create recurring contribution grant/session
-- `/api/cron/process-recurring` — Execute due recurring contributions
-- `/api/analytics/fund-balance` — Fund balance analytics
-- `/api/analytics/contribution-trend` — Contribution trend analytics
-- `/api/analytics/payout-stats` — Payout statistics
-- `/api/analytics/disaster-map` — Disaster geospatial analytics
-- `/api/sse/contributions` — Live contribution SSE stream
-- `/api/auth/[...nextauth]` — Deprecated endpoint; returns HTTP 410 with Supabase migration message
+Global pool reads:
 
-### Database Setup Routes
+- `/api/global/pool`
+- `/api/global/members`
+- `/api/global/payments/history`
+- `/api/global/governance/proposals`
+- `/api/global/donations/sidebar`
+- `/api/global/disasters/check`
 
-- Transactional schema bootstrap: `scripts/init-supabase.sql`
-- ClickHouse disasters + analytics schema bootstrap: `scripts/init-db.sql`
-- ClickHouse transactional cleanup script: `scripts/trim-clickhouse-transactional.sql`
+Payments and recurring:
+
+- `/api/payments/contribute`
+- `/api/payments/confirm`
+- `/api/payments/status`
+- `/api/payments/callback`
+- `/api/payments/mock-trigger`
+- `/api/recurring/create`
+
+Membership, profile, wallet:
+
+- `/api/members/join`
+- `/api/profile/me`
+- `/api/wallet/me`
+
+Governance:
+
+- `/api/governance/parameters`
+- `/api/governance/propose`
+- `/api/governance/vote`
+- `/api/governance/seed-round`
+- `/api/governance/resolve`
+
+Disaster, analytics, realtime:
+
+- `/api/disasters`
+- `/api/disasters/manual-trigger`
+- `/api/disasters/demo-payout`
+- `/api/earthquake/demo-data`
+- `/api/analytics/fund-balance`
+- `/api/analytics/contribution-trend`
+- `/api/analytics/payout-stats`
+- `/api/analytics/disaster-map`
+- `/api/sse/contributions`
+
+Cron endpoints (bearer-protected):
+
+- `/api/cron/poll-disasters`
+- `/api/cron/process-payouts`
+- `/api/cron/process-recurring`
+
+Deprecated endpoint:
+
+- `/api/auth/[...nextauth]` (returns HTTP `410`)
 
 ---
 
-## Team Alignment Decisions (Current)
+## Scripts and Data Setup
 
-- Demo narrative: **global-fund-first**
-- Auth narrative: **Supabase Google sign-in**
-- Realtime claim: **enabled** (ticker mounted + SSE route active)
-- Map strategy: **root-only map entry at `/`**
+NPM scripts (`package.json`):
+
+- `npm run dev`
+- `npm run build`
+- `npm run start`
+- `npm run lint`
+- `npm run seed`
+
+Database and migration scripts:
+
+- `scripts/init-supabase.sql`
+- `scripts/init-db.sql`
+- `scripts/migrations/002_create_user_wallets.sql`
+- `scripts/migrations/003_payments_phase2_phase3.sql`
+- `scripts/supabase-anon-donor-migration.sql`
+- `scripts/supabase-country-migration.sql`
+- `scripts/trim-clickhouse-transactional.sql`
+
+Seed and utility scripts:
+
+- `scripts/seed.ts`
+- `scripts/seed-governance.ts`
+- `scripts/truncate-tables.ts`
+
+---
+
+## Team Alignment (Current)
+
+- Product narrative: **global-fund-first**
+- Auth direction: **Supabase OAuth (Google)**
+- Realtime story: **enabled via SSE and live sidebars**
+- Platform shape: **single-pool architecture with root-route map UX**
