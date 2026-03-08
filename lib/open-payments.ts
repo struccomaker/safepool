@@ -475,7 +475,7 @@ function shouldRunDemoMode(): boolean {
   return true
 }
 
-function toMinorUnits(amount: number, assetScale: number): string {
+export function toMinorUnits(amount: number, assetScale: number): string {
   return String(Math.round(amount * (10 ** assetScale)))
 }
 
@@ -550,7 +550,7 @@ export function formatOpenPaymentsError(err: unknown): string {
   return parts.join(' | ')
 }
 
-async function getClient() {
+export async function getClient() {
   if (cachedClient) return cachedClient
 
   const keyId = getRequiredEnv('OPEN_PAYMENTS_KEY_ID')
