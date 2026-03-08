@@ -1254,7 +1254,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
                       <p className="text-sm text-white/40">No contributions yet.</p>
                     ) : (
                       <div className="space-y-2">
-                        {profileHistory.map((item) => (
+                        {profileHistory.slice(0, 5).map((item) => (
                           <div className="flex items-center justify-between border-b border-white/5 py-2 last:border-0" key={item.id}>
                             <div>
                               <div className="text-xs font-mono text-white/70">{item.pool_id}</div>
