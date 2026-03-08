@@ -2,10 +2,10 @@
 import { useEffect, useRef, useState } from 'react'
 
 // ── Fixed demo event parameters ──────────────────────────────────────────────
-const EQ_LOCATION  = 'Acre, Brazil'
+const EQ_LOCATION = 'Acre, Brazil'
 const EQ_MAGNITUDE = 7.4
-const EQ_LAT       = -9.19
-const EQ_LON       = -70.81
+const EQ_LAT = -9.19
+const EQ_LON = -70.81
 
 interface DemoPayoutData {
   pool_balance: number
@@ -413,7 +413,26 @@ export default function EarthquakeDemoOverlay() {
           // Keep fallback values
         })
 
-      const t1 = window.setTimeout(() => setPhase('payout'), 5000)
+      const t1 = window.setTimeout(() => {
+        setPhase('payout')
+        // Fire actual fund transfer + deductions in the background
+        const pd = payoutDataRef.current
+        fetch('/api/disasters/execute-payout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            magnitude: EQ_MAGNITUDE,
+            per_member_payout: pd.per_member_payout,
+            total_payout: pd.total_payout,
+            safety_cap: pd.safety_cap,
+            severity_multiplier: pd.severity_multiplier,
+            pool_balance: pd.pool_balance,
+          }),
+        })
+          .then((r) => r.json())
+          .then((res) => console.log('[earthquake] Execute-payout result:', res))
+          .catch((err) => console.warn('[earthquake] Execute-payout failed:', err))
+      }, 5000)
       const t2 = window.setTimeout(() => {
         setPhase('shrinking')
         window.dispatchEvent(new CustomEvent('safepool:earthquake-resolved'))
@@ -443,9 +462,9 @@ export default function EarthquakeDemoOverlay() {
 
   return (
     <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center">
-      {phase === 'alert'                          && <AlertPhase />}
+      {phase === 'alert' && <AlertPhase />}
       {(phase === 'payout' || phase === 'shrinking') && <PayoutPhase isShrinking={phase === 'shrinking'} data={payoutData} />}
-      {phase === 'thankyou'                       && <ThankyouPhase onDismiss={dismiss} data={payoutData} />}
+      {phase === 'thankyou' && <ThankyouPhase onDismiss={dismiss} data={payoutData} />}
     </div>
   )
 }

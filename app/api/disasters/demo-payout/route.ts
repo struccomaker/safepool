@@ -95,10 +95,8 @@ export async function POST(req: Request) {
       (m) => haversineDistance(m.location_lat, m.location_lon, locationLat, locationLon) <= params.impact_radius
     )
 
-    // Use spatially affected count; fallback to all members for demo
-    const affectedCount = spatiallyAffected.length > 0
-      ? spatiallyAffected.length
-      : Math.max(1, allMembers.length)
+    // Use hardcoded 4 affected families for demo
+    const affectedCount = 4
 
     // 4. Calculate payout using governance formula:
     //    Individual = (Pool Balance × Safety Cap) / Affected × Severity Multiplier

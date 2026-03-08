@@ -1,46 +1,63 @@
 # SafePool
-![A4b832f61a6344cf4bfc98a2bb40984298](https://github.com/user-attachments/assets/b9c479c6-fdd7-49d2-b603-9f2e5988d0bc)
 
+**Community-powered emergency fund platform** | HACKOMANIA 2026
 
-**Community-Powered Emergency Funds** | HACKOMANIA 2026
-
-SafePool is a community-powered emergency fund platform. Communities pool money in advance for disasters — when a disaster hits, we automatically trigger payouts via Interledger (Open Payments) and track everything in real-time with ClickHouse.
+SafePool is a single global emergency fund where users contribute before disasters happen and payouts can be triggered when disaster conditions are met. The app combines Supabase-backed transactional flows with ClickHouse-powered analytics, while Open Payments handles contribution and payout rails. The main user experience is an interactive 3D globe dashboard with live disaster and contribution activity.
 
 ---
 
-## Tech Stack
+## Core Features
 
-| Layer | Tool |
-|-------|------|
-| Framework | Next.js 16 (App Router) |
-| Styling | Tailwind CSS + shadcn/ui |
-| Database | ClickHouse Cloud |
-| Payments | Open Payments (Interledger Testnet) |
-| Auth | Supabase Auth |
-| Email | Nodemailer + Gmail SMTP |
-| 3D Globe | react-globe.gl (Three.js) |
-| Charts | Recharts + TanStack Query |
-| Maps | MapLibre GL / Leaflet |
-| Real-time | Server-Sent Events (SSE) |
+1. **Single global fund model**
+2. **Open Payments contribution and payout flows**
+3. **Automated disaster polling and payout processing**
+4. **Governance proposals and voting**
+5. **Realtime dashboard (SSE + globe + analytics)**
 
 ---
 
-## Features
+## Platform Overview
 
-- **3D Globe Landing Page** — Interactive globe showing active disaster zones and pool locations
-- **Pool Creation** — Create community funds with custom triggers (earthquake, flood) and payout models
-- **Real-time Contributions** — LED ticker showing live donations via SSE
-- **Disaster Detection** — Automatic polling from USGS, GDACS, and OpenWeatherMap APIs
-- **Auto-Payouts** — Instant ILP payments triggered when disasters match pool criteria
-- **Governance** — Proposal creation and voting for pool decisions
-- **Analytics Dashboard** — ClickHouse materialized views for real-time fund analytics
-- **Member Management** — Join pools, view contributions, track payout history
+- **Frontend**
+  - Next.js 16 App Router + React 18 + TypeScript
+  - Tailwind CSS + reusable dashboard components
+  - 3D globe (`react-globe.gl`) + drilldown maps (MapLibre/Leaflet)
+
+- **Backend**
+  - API routes in `app/api/*` for payments, governance, disasters, analytics, and profile/wallet
+  - Cron endpoints for disaster polling, payout processing, and recurring processing
+  - Supabase OAuth callback and popup completion flow
+
+- **Data model**
+  - Supabase Postgres: users, wallets, memberships, payment sessions, contributions, governance
+  - ClickHouse: disaster analytics and event mirror tables
+
+- **Payments**
+  - Interledger Open Payments for incoming and outgoing payments
+  - Recurring contribution grant/session support
+  - Encrypted persisted grant continuation/access state
 
 ---
 
-## Quick Setup
+## Quick Route Map
 
-### 1. Clone & Install
+- **App routes**
+  - `/` (main dashboard)
+  - `/profile` (authenticated account page)
+  - `/auth/callback` and `/auth/popup-complete` (OAuth flow)
+
+- **High-traffic API groups**
+  - `/api/global/*` (pool, members, history, governance proposals, sidebar donations)
+  - `/api/payments/*` and `/api/recurring/create`
+  - `/api/governance/*`
+  - `/api/disasters*`, `/api/analytics/*`, `/api/sse/contributions`
+  - `/api/cron/*` (bearer-protected automation endpoints)
+
+---
+
+## Installation
+
+### 1) Clone and install
 
 ```bash
 git clone <repo-url>
@@ -48,21 +65,19 @@ cd safepool
 npm install
 ```
 
-### 2. Environment Variables
-
-Create a `.env.local` file in the project root:
+### 2) Create `.env.local`
 
 ```env
-# ClickHouse Cloud
+# ClickHouse
 CLICKHOUSE_HOST=https://your-instance.clickhouse.cloud
 CLICKHOUSE_USER=default
 CLICKHOUSE_PASSWORD=your-password
 CLICKHOUSE_DATABASE=safepool
 
-# Open Payments Testnet
+# Open Payments (Interledger testnet)
 OPEN_PAYMENTS_KEY_ID=your-key-id
 OPEN_PAYMENTS_PRIVATE_KEY=your-private-key
-POOL_WALLET_ADDRESS=https://wallet.interledger-test.dev/safepool
+POOL_WALLET_ADDRESS=https://ilp.interledger-test.dev/safepool
 
 # Disaster APIs
 OPENWEATHERMAP_API_KEY=your-api-key
@@ -72,7 +87,7 @@ NEXT_PUBLIC_SUPABASE_URL=your-supabase-url
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# Email (Gmail App Password)
+# Email
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=your-email@gmail.com
@@ -81,77 +96,44 @@ SMTP_FROM="SafePool <your-email@gmail.com>"
 
 # App
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+CRON_SECRET=your-cron-secret
 ```
 
-### 3. Initialize Database
+### 3) Initialize databases
 
-Run the SQL schema in ClickHouse Cloud SQL console:
-```bash
-# Execute scripts/init-db.sql
-```
+- Supabase schema: run `scripts/init-supabase.sql`
+- ClickHouse schema: run `scripts/init-db.sql`
+- Optional migrations:
+  - `scripts/migrations/002_create_user_wallets.sql`
+  - `scripts/migrations/003_payments_phase2_phase3.sql`
+  - `scripts/supabase-anon-donor-migration.sql`
+  - `scripts/supabase-country-migration.sql`
 
-### 4. Seed Demo Data (Optional)
+### 4) Seed demo data (optional)
 
 ```bash
 npm run seed
 ```
 
-### 5. Start Development Server
+### 5) Run the app
 
 ```bash
 npm run dev
 ```
 
-Visit **http://localhost:3000**
-
----
-
-## Project Structure
-
-```
-safepool/
-├── app/                    # Next.js App Router pages
-│   ├── api/               # API routes
-│   ├── pools/             # Pool creation & management
-│   ├── disasters/         # Live disaster feed
-│   ├── analytics/          # ClickHouse analytics
-│   └── dashboard/         # User dashboard
-├── lib/
-│   ├── clickhouse.ts      # ClickHouse client
-│   ├── open-payments.ts   # Interledger payment helpers
-│   ├── disaster-engine.ts # Haversine & trigger evaluation
-│   ├── payout-engine.ts   # Distribution model calculators
-│   └── disaster-apis.ts   # USGS, GDACS, OWM fetchers
-├── components/            # React components
-├── scripts/               # Database init & seed
-└── types/                 # TypeScript definitions
-```
+Open `http://localhost:3000`.
 
 ---
 
 ## Available Scripts
 
-| Command | Description |
-|---------|-------------|
-| `npm run dev` | Start dev server |
-| `npm run build` | Production build |
-| `npm run lint` | Run ESLint |
-| `npm run seed` | Seed demo data |
+- `npm run dev` - Start development server
+- `npm run build` - Build production app
+- `npm run start` - Start production server
+- `npm run lint` - Run linting
+- `npm run seed` - Seed demo data
 
 ---
-
-## Demo Flow
-
-1. Landing page — 3D globe spins, LED marquee ticker shows live donations
-2. Create pool — set triggers (earthquake/flood) and payout model
-3. Join with demo wallets
-4. Make contributions via ILP
-5. Simulate disaster or wait for auto-detection
-6. Watch PayoutTracker — ILP payments sent in ~2s
-7. View Analytics — real-time ClickHouse materialized views
-
----
-![A4b832f61a6344cf4bfc98a2bb40984298](https://github.com/user-attachments/assets/ba719356-2112-4e18-88b3-0a0d196a856c)
 
 ## License
 
