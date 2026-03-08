@@ -29,6 +29,12 @@ Current state of the SafePool codebase (HACKOMANIA 2026), based on the routes an
 - **Cron-driven automation:** Disaster polling, payout processing, and recurring processing run through protected cron routes using a bearer secret.
 - **Demo-friendly behavior:** The app includes manual and mock disaster/payment triggers and UI demo overlays/hotkeys for live presentations.
 
+## Demo Data Qualification
+
+- **Why mock data exists:** For qualification/demo reliability, disaster scenarios (for example earthquake flows) can be run with deterministic mock events.
+- **How it works:** `GET /api/disasters` supports forced mock mode via `DISASTER_DATA_MODE=mock` or query override `?mode=mock`.
+- **Fallback behavior:** If live disaster querying fails, the endpoint returns mock disaster records instead of hard-failing.
+
 ---
 
 ## Major User-Facing Surfaces
