@@ -32,6 +32,7 @@ export async function GET() {
         .select('id,member_id,donor_name,is_anonymous,donor_country,amount,currency,contributed_at')
         .eq('pool_id', GLOBAL_POOL_ID)
         .eq('status', 'completed')
+        .gt('amount', 0)
         .order('contributed_at', { ascending: false })
         .limit(6),
       admin
