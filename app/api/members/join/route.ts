@@ -91,6 +91,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid wallet address' }, { status: 400 })
     }
 
+    const id = crypto.randomUUID()
+
+    const insertPayload = {
+      id,
+      pool_id: GLOBAL_POOL_ID,
+      user_id: user.id,
+      wallet_address: walletAddress,
+      location_lat: body.location_lat,
+      location_lon: body.location_lon,
+      household_size: body.household_size ?? 1,
+      is_active: true,
+    }
+
+    const { error: insertMemberError } = await admin
+      .from('members')
+      .insert(insertPayload)
+
+    if (!insertMemberError) {
+      return NextResponse.json({ id }, { status: 201 })
+    }
+
+    const isDuplicate = insertMemberError.code === '23505'
+      || insertMemberError.message.toLowerCase().includes('duplicate key')
+
+    if (!isDuplicate) {
+      return NextResponse.json({ error: `Failed to create member: ${insertMemberError.message}` }, { status: 500 })
+    }
+
     const { data: existingMember, error: existingMemberError } = await admin
       .from('members')
       .select('id')
@@ -100,50 +128,27 @@ export async function POST(req: NextRequest) {
       .order('joined_at', { ascending: false })
       .limit(1)
 
-    if (existingMemberError) {
-      return NextResponse.json({ error: `Failed to load member record: ${existingMemberError.message}` }, { status: 500 })
+    if (existingMemberError || existingMember.length === 0) {
+      return NextResponse.json({ error: `Failed to resolve existing member after duplicate insert: ${existingMemberError?.message ?? 'No active member found'}` }, { status: 500 })
     }
 
-    if (existingMember.length > 0) {
-      const { error: updateMemberError } = await admin
-        .from('members')
-        .update({
-          wallet_address: walletAddress,
-          location_lat: body.location_lat,
-          location_lon: body.location_lon,
-          household_size: body.household_size ?? 1,
-          joined_at: new Date().toISOString(),
-          is_active: true,
-        })
-        .eq('id', existingMember[0].id)
-
-      if (updateMemberError) {
-        return NextResponse.json({ error: `Failed to update member: ${updateMemberError.message}` }, { status: 500 })
-      }
-
-      return NextResponse.json({ id: existingMember[0].id }, { status: 200 })
-    }
-
-    const id = crypto.randomUUID()
-
-    const { error: insertMemberError } = await admin
+    const { error: updateMemberError } = await admin
       .from('members')
-      .insert({
-        id,
-        pool_id: GLOBAL_POOL_ID,
-        user_id: user.id,
+      .update({
         wallet_address: walletAddress,
         location_lat: body.location_lat,
         location_lon: body.location_lon,
         household_size: body.household_size ?? 1,
+        joined_at: new Date().toISOString(),
         is_active: true,
       })
+      .eq('id', existingMember[0].id)
 
-    if (insertMemberError) {
-      return NextResponse.json({ error: `Failed to create member: ${insertMemberError.message}` }, { status: 500 })
+    if (updateMemberError) {
+      return NextResponse.json({ error: `Failed to update existing member after duplicate insert: ${updateMemberError.message}` }, { status: 500 })
     }
 
-    return NextResponse.json({ id }, { status: 201 })
+    return NextResponse.json({ id: existingMember[0].id }, { status: 200 })
   } catch (err: unknown) {
     console.error(err)
     const message = err instanceof Error ? err.message : 'Internal error'

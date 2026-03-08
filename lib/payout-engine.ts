@@ -27,6 +27,10 @@ function calculatePerMemberPayouts(
 ): Map<string, number> {
   const payouts = new Map<string, number>()
 
+  if (affectedMembers.length === 0) {
+    return payouts
+  }
+
   switch (pool.distribution_model) {
     case 'equal_split': {
       const share = totalFunds / affectedMembers.length
@@ -41,6 +45,9 @@ function calculatePerMemberPayouts(
     }
     case 'household_size': {
       const totalUnits = affectedMembers.reduce((s, m) => s + m.household_size, 0)
+      if (totalUnits <= 0) {
+        return payouts
+      }
       for (const m of affectedMembers) {
         payouts.set(m.id, (m.household_size / totalUnits) * totalFunds)
       }
@@ -51,6 +58,8 @@ function calculatePerMemberPayouts(
       for (const m of affectedMembers) payouts.set(m.id, share)
       break
     }
+    default:
+      throw new Error(`Unsupported distribution model: ${String(pool.distribution_model)}`)
   }
 
   return payouts

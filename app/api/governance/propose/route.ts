@@ -6,6 +6,7 @@ import { createClient as createCH } from '@clickhouse/client'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { syncSupabaseUserToClickHouse } from '@/lib/supabase/sync-user'
+import { GLOBAL_POOL_ID } from '@/lib/global-pool'
 
 // ─── Types ────────────────────────────────────────────────────────────────
 type ParameterKey = 'safety_cap' | 'trigger_sensitivity' | 'impact_radius'
@@ -31,9 +32,6 @@ const PARAM_BOUNDS: Record<ParameterKey, { min: number; max: number }> = {
   trigger_sensitivity: { min: 4.5,  max: 7.5  },
   impact_radius:       { min: 20,   max: 150   },
 }
-
-const QUORUM_REQUIRED = 14031.66   // 20% of pool total
-const POOL_TOTAL_SGD  = 70158.31
 
 function formatDateTime(date: Date): string {
   return date.toISOString().replace('T', ' ').substring(0, 19)
@@ -61,6 +59,7 @@ export async function POST(req: NextRequest) {
     // Clamp proposed value to allowed bounds
     const bounds = PARAM_BOUNDS[body.parameter]
     const proposed_value = Math.min(Math.max(body.proposed_value, bounds.min), bounds.max)
+    const admin = createSupabaseAdminClient()
 
     const id           = crypto.randomUUID()
     const now          = new Date()
@@ -69,8 +68,34 @@ export async function POST(req: NextRequest) {
     const submittedAt  = formatDateTime(now)
     const closedAtStr  = formatDateTime(closedAt)
 
+    const { data: inRows, error: inError } = await admin
+      .from('contributions')
+      .select('amount')
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .eq('status', 'completed')
+      .eq('currency', 'SGD')
+
+    if (inError) {
+      return NextResponse.json({ error: `Failed to calculate governance quorum (inflow): ${inError.message}` }, { status: 500 })
+    }
+
+    const { data: outRows, error: outError } = await admin
+      .from('payouts')
+      .select('amount')
+      .eq('pool_id', GLOBAL_POOL_ID)
+      .eq('status', 'completed')
+      .eq('currency', 'SGD')
+
+    if (outError) {
+      return NextResponse.json({ error: `Failed to calculate governance quorum (outflow): ${outError.message}` }, { status: 500 })
+    }
+
+    const totalIn = inRows.reduce((sum, row) => sum + Number(row.amount), 0)
+    const totalOut = outRows.reduce((sum, row) => sum + Number(row.amount), 0)
+    const poolTotalSgd = Math.max(0, totalIn - totalOut)
+    const quorumRequired = Number((poolTotalSgd * 0.2).toFixed(2))
+
     // ── 1. Write to Supabase (auth-linked ownership record) ──────────────
-    const admin = createSupabaseAdminClient()
     const { error: supabaseError } = await admin
       .from('proposals')
       .insert({
@@ -100,8 +125,8 @@ export async function POST(req: NextRequest) {
         current_value:   body.current_value,
         proposed_by:     user.id,
         status:          'open',
-        quorum_required: QUORUM_REQUIRED,
-        pool_total_sgd:  POOL_TOTAL_SGD,
+        quorum_required: quorumRequired,
+        pool_total_sgd:  poolTotalSgd,
         submitted_at:    submittedAt,
         closed_at:       closedAtStr,
       }],

@@ -3,7 +3,6 @@ import { Inter } from 'next/font/google'
 import './globals.css'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import Providers from '@/components/Providers'
-import LedTicker from '@/components/LedTicker'
 
 const inter = Inter({ subsets: ['latin'] })
 

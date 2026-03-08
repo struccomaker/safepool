@@ -92,7 +92,6 @@ async function sendPayoutToWallet(
                     assetScale: familyWallet.assetScale,
                 },
                 expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
-                metadata: { type: 'earthquake-relief', payoutId, familyIndex: String(familyIndex) },
             }
         )
 
@@ -165,7 +164,6 @@ async function sendPayoutToWallet(
             {
                 walletAddress: poolWallet.id,
                 quoteId: quote.id,
-                metadata: { type: 'earthquake-relief', payoutId, familyIndex: String(familyIndex) },
             }
         )
 
