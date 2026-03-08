@@ -7,6 +7,7 @@ import RightConfigSidebar from '@/components/dashboard/RightConfigSidebar'
 import TopNavigationMenu from '@/components/dashboard/TopNavigationMenu'
 import EarthquakeDemoOverlay from '@/components/EarthquakeDemoOverlay'
 import TildeHelpPanel from '@/components/dashboard/TildeHelpPanel'
+import { MiniGodzillaBadge } from '@/components/dashboard/TopNavigationMenu'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Progress } from '@/components/ui/progress'
 
@@ -41,6 +42,18 @@ function PageLoader({ overlay = false }: { overlay?: boolean }) {
 export default function DashboardPage() {
   const [isDrilldownOpen, setIsDrilldownOpen] = useState(false)
   const [isGlobeReady, setIsGlobeReady] = useState(false)
+  const [showGodzilla, setShowGodzilla] = useState(true)
+
+  useEffect(() => {
+    const hide = () => setShowGodzilla(false)
+    const show = () => setShowGodzilla(true)
+    window.addEventListener('safepool:godzilla-spawned', hide)
+    window.addEventListener('safepool:godzilla-cleared', show)
+    return () => {
+      window.removeEventListener('safepool:godzilla-spawned', hide)
+      window.removeEventListener('safepool:godzilla-cleared', show)
+    }
+  }, [])
 
   return (
     <Suspense fallback={<PageLoader />}>
@@ -48,6 +61,15 @@ export default function DashboardPage() {
         <GlobeCenterPanel onDrilldownChange={setIsDrilldownOpen} onGlobeReadyChange={setIsGlobeReady} />
         <EarthquakeDemoOverlay />
         <TildeHelpPanel />
+
+        {isGlobeReady && (
+          <div className="pointer-events-auto absolute left-4 top-4 z-40 flex items-center gap-2">
+            <div className="w-14 h-14 flex items-center justify-center">
+              {showGodzilla && <MiniGodzillaBadge />}
+            </div>
+            <span className="font-mono text-sm font-bold tracking-[0.2em] text-white/85">SAFEPOOL</span>
+          </div>
+        )}
 
         {!isGlobeReady && <PageLoader overlay />}
 

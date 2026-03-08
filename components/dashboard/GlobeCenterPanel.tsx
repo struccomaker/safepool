@@ -34,11 +34,13 @@ export default function GlobeCenterPanel({ onDrilldownChange, onGlobeReadyChange
   return (
     <section className="absolute inset-0 overflow-hidden bg-black">
       <div className="pointer-events-none absolute inset-0 z-10 bg-[radial-gradient(circle_at_center,transparent_40%,rgba(0,0,0,0.82)_100%)]" />
-      <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2">
-        <Badge variant="outline" className="border-white/30 bg-black/40 px-4 py-1 text-white/85 backdrop-blur">
-          {isDrilldownOpen ?  'Disaster Heatmap' : 'SAFEPOOL'}
-        </Badge>
-      </div>
+      {isDrilldownOpen && (
+        <div className="pointer-events-none absolute left-1/2 top-5 z-20 -translate-x-1/2">
+          <Badge variant="outline" className="border-white/30 bg-black/40 px-4 py-1 text-white/85 backdrop-blur">
+            Disaster Heatmap
+          </Badge>
+        </div>
+      )}
       <div className="h-full w-full">
         {isDrilldownOpen && selectedCountry ? (
           <CountryDrilldownMap country={selectedCountry} onExit={() => setSelectedCountry(null)} />

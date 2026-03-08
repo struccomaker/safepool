@@ -103,7 +103,7 @@ const MINI_GODZILLA_ORIENTATIONS = {
 const MINI_GODZILLA_DIRECTION: keyof typeof MINI_GODZILLA_ORIENTATIONS = 'right'
 const LOGIN_INTENT_KEY = 'safepool:login-intent'
 
-function MiniGodzillaBadge() {
+export function MiniGodzillaBadge() {
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const [isHovered, setIsHovered] = useState(false)
   const [hoverPos, setHoverPos] = useState({ x: 28, y: 28 })
@@ -254,7 +254,6 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
   const router = useRouter()
   const searchParams = useSearchParams()
   const hasWelcomeSignal = searchParams.get('auth_welcome') === '1'
-  const [showMiniGodzilla, setShowMiniGodzilla] = useState(true)
   const [showWelcomeOverlay, setShowWelcomeOverlay] = useState(false)
   const [welcomeOverlayFading, setWelcomeOverlayFading] = useState(false)
   const [welcomeName, setWelcomeName] = useState('Member')
@@ -364,22 +363,6 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     }
   }, [hasWelcomeSignal, router])
 
-  useEffect(() => {
-    const handleGodzillaSpawned = () => {
-      setShowMiniGodzilla(false)
-    }
-
-    const handleGodzillaCleared = () => {
-      setShowMiniGodzilla(true)
-    }
-
-    window.addEventListener('safepool:godzilla-spawned', handleGodzillaSpawned as EventListener)
-    window.addEventListener('safepool:godzilla-cleared', handleGodzillaCleared as EventListener)
-    return () => {
-      window.removeEventListener('safepool:godzilla-spawned', handleGodzillaSpawned as EventListener)
-      window.removeEventListener('safepool:godzilla-cleared', handleGodzillaCleared as EventListener)
-    }
-  }, [])
 
   const getAuthRedirectOrigin = () => {
     const runtimeOrigin = window.location.origin
@@ -939,8 +922,7 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
             </button>
           ) : (
             <>
-              {showMiniGodzilla && <MiniGodzillaBadge />}
-              <button
+<button
                 className={`${itemClass} text-white/40 hover:text-white/60`}
                 onClick={() => setShowGovernanceModal(true)}
                 type="button"
