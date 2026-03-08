@@ -71,13 +71,23 @@ async function sendPayoutToWallet(
 
         const incomingAccessToken = (incomingGrant as { access_token: { value: string } }).access_token.value
 
-        // 2. Create incoming payment on family wallet (receive amount)
+        // Approximate FX rates from SGD to common testnet currencies
+        const fxRates: Record<string, number> = {
+            'USD': 0.74,
+            'EUR': 0.68,
+            'GBP': 0.58,
+            'SGD': 1.0,
+        }
+        const rate = fxRates[familyWallet.assetCode] || 1.0
+        const foreignAmount = amount * rate
+
+        // 2. Create incoming payment on family wallet (specific receive amount)
         const incomingPayment = await client.incomingPayment.create(
             { url: familyWallet.resourceServer, accessToken: incomingAccessToken },
             {
                 walletAddress: familyWallet.id,
                 incomingAmount: {
-                    value: toMinorUnits(amount, familyWallet.assetScale),
+                    value: toMinorUnits(foreignAmount, familyWallet.assetScale),
                     assetCode: familyWallet.assetCode,
                     assetScale: familyWallet.assetScale,
                 },
@@ -86,9 +96,9 @@ async function sendPayoutToWallet(
             }
         )
 
-        console.log(`[payout] Incoming payment created: ${incomingPayment.id}`)
+        console.log(`[payout] Incoming payment created: ${incomingPayment.id} for ${foreignAmount.toFixed(2)} ${familyWallet.assetCode}`)
 
-        // 3. Get outgoing-payment + quote grant on pool wallet (non-interactive)
+        // 3. Get outgoing-payment + quote grant on pool wallet (interactive if required)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const outgoingGrant = await client.grant.request(
             { url: poolWallet.authServer },
@@ -102,7 +112,7 @@ async function sendPayoutToWallet(
                             identifier: poolWallet.id,
                             limits: {
                                 debitAmount: {
-                                    value: toMinorUnits(amount * 2, poolWallet.assetScale),
+                                    value: toMinorUnits(amount * 2, poolWallet.assetScale), // buffer for slip
                                     assetCode: poolWallet.assetCode,
                                     assetScale: poolWallet.assetScale,
                                 },
@@ -110,41 +120,65 @@ async function sendPayoutToWallet(
                         },
                     ] as any,
                 },
+                interact: {
+                    start: ['redirect'],
+                    finish: {
+                        method: 'redirect',
+                        uri: `http://localhost:3000/api/payments/callback?flow=outgoing&payout_id=${payoutId}`,
+                        nonce: crypto.randomUUID(),
+                    },
+                },
             }
         )
 
-        if (!('access_token' in outgoingGrant) || !outgoingGrant.access_token) {
-            return { success: false, error: 'Outgoing grant requires interaction — pool wallet needs non-interactive grants' }
+        // The grant flow requires completing interaction before we get an access_token.
+        // Wait, for backend automated payout, we need a NON-INTERACTIVE grant config
+        // or an pre-authorized token for the pool wallet.
+        // If it returns interaction required, we cannot proceed synchronously!
+
+        // Actually, if it's the SafePool pool wallet acting autonomously, it should ideally
+        // be configured not to require interaction, but testnets often require it no matter what unless configured specially.
+        // Or we pass the interact block and if it returns an interaction_url, we just log it.
+
+        let outAccessToken: string
+        if ('access_token' in outgoingGrant && outgoingGrant.access_token) {
+            outAccessToken = (outgoingGrant as { access_token: { value: string } }).access_token.value
+        } else {
+            return { success: false, error: 'Outgoing grant requires user interaction — pool wallet needs non-interactive grants for automated payouts' }
         }
 
-        const outAccessToken = (outgoingGrant as { access_token: { value: string } }).access_token.value
-
-        // 4. Create quote
+        // 4. Create quote — ILP will calculate the exact SGD debitAmount required to fulfill the foreign receiveAmount
         const quote = await client.quote.create(
             { url: poolWallet.resourceServer, accessToken: outAccessToken },
-            { walletAddress: poolWallet.id, receiver: incomingPayment.id, method: 'ilp' }
+            {
+                walletAddress: poolWallet.id,
+                receiver: incomingPayment.id,
+                method: 'ilp',
+            }
         )
 
         console.log(`[payout] Quote: debit=${JSON.stringify(quote.debitAmount)} receive=${JSON.stringify(quote.receiveAmount)}`)
 
         // 5. Create outgoing payment
-        const outgoing = await client.outgoingPayment.create(
+        const outgoingPayment = await client.outgoingPayment.create(
             { url: poolWallet.resourceServer, accessToken: outAccessToken },
             {
                 walletAddress: poolWallet.id,
                 quoteId: quote.id,
-                metadata: { type: 'earthquake-relief-payout', payoutId, familyIndex: String(familyIndex) },
+                metadata: { type: 'earthquake-relief', payoutId, familyIndex: String(familyIndex) },
             }
         )
 
-        console.log(`[payout] Outgoing payment: id=${outgoing.id} failed=${outgoing.failed}`)
+        console.log(`[payout] Outgoing payment: id=${outgoingPayment.id} failed=${outgoingPayment.failed}`)
 
-        if (outgoing.failed) return { success: false, error: 'Outgoing payment marked as failed' }
-        return { success: true, outgoingPaymentId: outgoing.id }
-    } catch (err) {
-        const msg = formatOpenPaymentsError(err)
-        console.error(`[payout] Family ${familyIndex + 1} failed:`, msg)
-        return { success: false, error: msg }
+        return { success: !outgoingPayment.failed, outgoingPaymentId: outgoingPayment.id }
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error'
+        const fullMsg = typeof err === 'object' && err !== null && 'message' in err
+            ? formatOpenPaymentsError(err)
+            : message
+        console.error(`[payout] Family ${familyIndex + 1} failed:`, fullMsg)
+        return { success: false, error: fullMsg }
     }
 }
 
@@ -181,6 +215,19 @@ export async function POST(req: Request) {
         const admin = createSupabaseAdminClient()
         const payoutId = crypto.randomUUID()
 
+        // Find the member ID for the triggering user to satisfy FK constraint on contributions table
+        const { data: memberRows, error: memberErr } = await admin
+            .from('members')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('pool_id', GLOBAL_POOL_ID)
+            .limit(1)
+
+        if (memberErr || !memberRows || memberRows.length === 0) {
+            return NextResponse.json({ error: 'User must be a member of the pool to trigger payouts' }, { status: 400 })
+        }
+        const memberIdTrigger = memberRows[0].id
+
         console.log(`[payout] Starting: total=${totalPayout} perFamily=${perMemberPayout} families=${AFFECTED_FAMILIES}`)
 
         // ── 1. Send funds to family wallets ───────────────────────────────────
@@ -199,68 +246,35 @@ export async function POST(req: Request) {
             console.log(`[payout] ${ok}/${familyWallets.length} transfers succeeded`)
         }
 
-        // ── 2. Deduct contributions proportionally ───────────────────────────
-        //
-        // Each contributor loses (their_amount / poolBalance) × totalPayout
-        // from their balance. Recorded as negative contribution entries.
+        // ── 2. Deduct total payout from pool ───────────────────────────
 
-        const { data: contribs, error: contribErr } = await admin
-            .from('contributions')
-            .select('id, amount, member_id, donor_name')
-            .eq('pool_id', GLOBAL_POOL_ID)
-            .eq('status', 'completed')
-
-        if (contribErr) {
-            throw new Error(`Failed to query contributions: ${contribErr.message}`)
-        }
-
-        const rows = contribs ?? []
-        const actualPoolBalance = rows.reduce((s, r) => s + Number(r.amount ?? 0), 0)
         const now = new Date().toISOString()
+        const { error: insErr } = await admin.from('contributions').insert({
+            id: crypto.randomUUID(),
+            pool_id: GLOBAL_POOL_ID,
+            member_id: memberIdTrigger, // Uses the valid member ID
+            donor_name: 'SafePool Disaster Relief',
+            is_anonymous: false,
+            donor_country: 'SG',
+            amount: -totalPayout, // Single flat deduction for total payout
+            currency: 'SGD',
+            incoming_payment_id: `payout:${payoutId}`,
+            contributed_at: now,
+            status: 'completed',
+        })
 
-        const deductions: Array<{
-            id: string; pool_id: string; member_id: string; donor_name: string
-            is_anonymous: boolean; donor_country: string; amount: number; currency: string
-            incoming_payment_id: string; contributed_at: string; status: string
-        }> = []
-
-        for (const c of rows) {
-            const amt = Number(c.amount ?? 0)
-            if (amt <= 0 || actualPoolBalance <= 0) continue
-            const share = amt / actualPoolBalance
-            const deductAmt = share * totalPayout
-            if (deductAmt <= 0) continue
-
-            deductions.push({
-                id: crypto.randomUUID(),
-                pool_id: GLOBAL_POOL_ID,
-                member_id: c.member_id,
-                donor_name: c.donor_name ?? 'Unknown',
-                is_anonymous: false,
-                donor_country: 'SG',
-                amount: -deductAmt,
-                currency: 'SGD',
-                incoming_payment_id: `payout:${payoutId}`,
-                contributed_at: now,
-                status: 'completed',
-            })
+        if (insErr) {
+            console.error('[payout] Deduction insert failed:', insErr.message)
+            return NextResponse.json({ error: `Deduction insert failed: ${insErr.message}` }, { status: 500 })
         }
 
-        if (deductions.length > 0) {
-            const { error: insErr } = await admin.from('contributions').insert(deductions)
-            if (insErr) {
-                console.error('[payout] Deduction insert failed:', insErr.message)
-            } else {
-                console.log(`[payout] Inserted ${deductions.length} deduction records`)
-            }
-        }
 
         return NextResponse.json({
             payoutId,
             totalPayout: Math.round(totalPayout * 100) / 100,
             perFamily: Math.round(perMemberPayout * 100) / 100,
             familiesAffected: AFFECTED_FAMILIES,
-            deductionsRecorded: deductions.length,
+            deductionsRecorded: 1,
             transfers: transferResults,
         })
     } catch (err) {

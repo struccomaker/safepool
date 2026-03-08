@@ -475,23 +475,7 @@ export async function POST() {
       return NextResponse.json({ error: `Failed to persist mock contribution: ${insertError.message}` }, { status: 500 })
     }
 
-    try {
-      await insertRows('contributions', [{
-        id: contributionId,
-        pool_id: GLOBAL_POOL_ID,
-        member_id: memberId,
-        donor_name: donorName,
-        is_anonymous: false,
-        donor_country: donorCountry,
-        amount,
-        currency: poolWallet.assetCode,
-        incoming_payment_id: payment.outgoingPaymentId,
-        contributed_at: toClickHouseDateTime(new Date(contributedAtIso)),
-        status: 'completed',
-      }])
-    } catch (mirrorErr) {
-      console.error('Non-blocking ClickHouse contribution mirror write failed for mock donation', mirrorErr)
-    }
+    // ClickHouse mirroring removed (safepool.contributions does not exist)
 
     return NextResponse.json({
       id: contributionId,

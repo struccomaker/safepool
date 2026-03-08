@@ -413,9 +413,23 @@ export default function EarthquakeDemoOverlay() {
           // Keep fallback values
         })
 
-      const t1 = window.setTimeout(() => {
-        setPhase('payout')
-        // Fire actual fund transfer + deductions in the background
+      const t1 = window.setTimeout(() => setPhase('payout'), 5000)
+      const t2 = window.setTimeout(() => {
+        setPhase('shrinking')
+        window.dispatchEvent(new CustomEvent('safepool:earthquake-resolved'))
+        // Notify sidebar to deduct payout from displayed pool balance
+        window.dispatchEvent(
+          new CustomEvent('safepool:pool-deducted', {
+            detail: { amount: payoutDataRef.current.total_payout },
+          })
+        )
+      }, 10000)
+      const t3 = window.setTimeout(() => setPhase('thankyou'), 15000)
+      const t4 = window.setTimeout(() => {
+        setPhase('idle')
+        window.dispatchEvent(new CustomEvent('safepool:earthquake-end'))
+
+        // Fire actual fund transfer + deductions in the background ONLY after demo UI completes
         const pd = payoutDataRef.current
         fetch('/api/disasters/execute-payout', {
           method: 'POST',
@@ -432,21 +446,6 @@ export default function EarthquakeDemoOverlay() {
           .then((r) => r.json())
           .then((res) => console.log('[earthquake] Execute-payout result:', res))
           .catch((err) => console.warn('[earthquake] Execute-payout failed:', err))
-      }, 5000)
-      const t2 = window.setTimeout(() => {
-        setPhase('shrinking')
-        window.dispatchEvent(new CustomEvent('safepool:earthquake-resolved'))
-        // Notify sidebar to deduct payout from displayed pool balance
-        window.dispatchEvent(
-          new CustomEvent('safepool:pool-deducted', {
-            detail: { amount: payoutDataRef.current.total_payout },
-          })
-        )
-      }, 10000)
-      const t3 = window.setTimeout(() => setPhase('thankyou'), 15000)
-      const t4 = window.setTimeout(() => {
-        setPhase('idle')
-        window.dispatchEvent(new CustomEvent('safepool:earthquake-end'))
       }, 23000)
       timersRef.current = [t1, t2, t3, t4]
     }

@@ -137,8 +137,7 @@ async function finalizeOneTimeContribution(contributionId: string): Promise<{
   state: 'completed' | 'pending'
   amount?: number
   currency?: string
-}>
- {
+}> {
   const admin = createSupabaseAdminClient()
 
   const { data: existingRows, error: existingError } = await admin
@@ -190,17 +189,17 @@ async function finalizeOneTimeContribution(contributionId: string): Promise<{
       id: pending.id,
       pool_id: pending.pool_id,
       member_id: pending.member_id,
-        amount: pending.amount,
-        currency: pending.currency,
-        incoming_payment_id: pending.incoming_payment_id,
-        donor_name: pending.donor_name ?? 'SafePool Member',
-        is_anonymous: Boolean(pending.is_anonymous),
-        donor_country: typeof pending.donor_country === 'string' && pending.donor_country.trim().length === 2
-          ? pending.donor_country.trim().toUpperCase()
-          : 'SG',
-        contributed_at: contributedAt,
-        status: 'completed',
-      }, { onConflict: 'id' })
+      amount: pending.amount,
+      currency: pending.currency,
+      incoming_payment_id: pending.incoming_payment_id,
+      donor_name: pending.donor_name ?? 'SafePool Member',
+      is_anonymous: Boolean(pending.is_anonymous),
+      donor_country: typeof pending.donor_country === 'string' && pending.donor_country.trim().length === 2
+        ? pending.donor_country.trim().toUpperCase()
+        : 'SG',
+      contributed_at: contributedAt,
+      status: 'completed',
+    }, { onConflict: 'id' })
 
   if (contributionUpsertError) {
     throw new Error(`Failed to finalize contribution: ${contributionUpsertError.message}`)
@@ -215,20 +214,7 @@ async function finalizeOneTimeContribution(contributionId: string): Promise<{
     throw new Error(`Failed to clear pending contribution after finalization: ${deletePendingError.message}`)
   }
 
-  try {
-    await insertRows('contributions', [{
-      id: pending.id,
-      pool_id: pending.pool_id,
-      member_id: pending.member_id,
-      amount: pending.amount,
-      currency: pending.currency,
-      incoming_payment_id: pending.incoming_payment_id,
-      contributed_at: toClickHouseDateTime(new Date(contributedAt)),
-      status: 'completed',
-    }])
-  } catch (mirrorErr) {
-    console.error('Non-blocking ClickHouse contribution mirror write failed during callback finalization', mirrorErr)
-  }
+  // ClickHouse mirroring removed (safepool.contributions does not exist)
 
   return {
     state: 'completed',
