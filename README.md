@@ -1,6 +1,14 @@
-# SafePool
+# SafePool is a solution made in 24 hours within a live hackathon | HACKOMANIA 2026 https://hackomania.geekshacking.com
 
-**Community-powered emergency fund platform** | HACKOMANIA 2026 https://hackomania.geekshacking.com
+Problem Statement:
+<img width="4713" height="1275" alt="image" src="https://github.com/user-attachments/assets/994835bb-53a3-4080-a441-34086373e84a" />
+
+Community-Powered Emergency Funds with Instant Money Payouts
+How might we design a programmable, community-driven emergency fund platform that leverages Open Payments to collect micro-contributions and automatically disburse financial aid based on verified disaster triggers and transparent payout rules?
+
+Presenting 
+#SAFEPOOL
+**Community-powered emergency fund platform** 
 
 SafePool is a single global emergency fund where users contribute before disasters happen and payouts can be triggered when disaster conditions are met. The app combines Supabase-backed transactional flows with ClickHouse-powered analytics, while Open Payments handles contribution and payout rails. The main user experience is an interactive 3D globe dashboard with live disaster and contribution activity.
 
