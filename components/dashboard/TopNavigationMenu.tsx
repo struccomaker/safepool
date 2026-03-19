@@ -494,6 +494,10 @@ export default function TopNavigationMenu({ isAuthenticated = false }: TopNaviga
     }
     mockDonationLock.current = true
     setMockDonationRunning(true)
+    
+    // Spawn arc immediately for responsive UX, then process donation in background
+    window.dispatchEvent(new Event('safepool:donation-arc'))
+    
     try {
       const response = await fetch('/api/payments/mock-trigger', {
         method: 'POST',

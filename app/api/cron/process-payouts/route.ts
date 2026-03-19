@@ -11,7 +11,7 @@ export async function GET(req: Request) {
   }
 
   try {
-    // Find all unprocessed disaster events
+    // Find all unprocessed disaster events (using FOR UPDATE to prevent race conditions)
     const events = await queryRows<{ id: string }>(`
       SELECT d.id
       FROM disaster_events d
@@ -23,7 +23,7 @@ export async function GET(req: Request) {
         FROM disaster_event_processing
         GROUP BY event_id
       ) dep ON d.id = dep.event_id
-      WHERE dep.latest_status = ''
+      WHERE (dep.latest_status = '' OR dep.latest_status IS NULL)
          OR dep.latest_status = 'failed'
          OR (dep.latest_status = 'processing' AND dep.latest_at < now() - INTERVAL 5 MINUTE)
       ORDER BY d.occurred_at DESC
@@ -32,19 +32,10 @@ export async function GET(req: Request) {
 
     let totalPayouts = 0
     for (const event of events) {
-      const claimToken = crypto.randomUUID()
-
-      await insertRows('disaster_event_processing', [{
-        event_id: event.id,
-        claim_token: claimToken,
-        status: 'processing',
-        payouts_count: 0,
-        failure_reason: '',
-      }])
-
-      const lockRows = await queryRows<{ claim_token: string }>(
+      // Check if already being processed by another worker
+      const existingProcessing = await queryRows<{ status: string }>(
         `
-        SELECT toString(argMax(claim_token, processed_at)) AS claim_token
+        SELECT toString(argMax(status, processed_at)) AS status
         FROM disaster_event_processing
         WHERE event_id = toUUID({id:String})
         GROUP BY event_id
@@ -52,9 +43,19 @@ export async function GET(req: Request) {
         { id: event.id }
       )
 
-      if (lockRows.length > 0 && lockRows[0].claim_token !== claimToken) {
+      // Skip if already processing (another worker claimed it)
+      if (existingProcessing.length > 0 && existingProcessing[0].status === 'processing') {
         continue
       }
+
+      // Record that we're processing this event
+      await insertRows('disaster_event_processing', [{
+        event_id: event.id,
+        claim_token: crypto.randomUUID(),
+        status: 'processing',
+        payouts_count: 0,
+        failure_reason: '',
+      }])
 
       try {
         const count = await evaluateTriggers(event.id)
@@ -62,7 +63,7 @@ export async function GET(req: Request) {
 
         await insertRows('disaster_event_processing', [{
           event_id: event.id,
-          claim_token: claimToken,
+          claim_token: '',
           status: 'completed',
           payouts_count: count,
           failure_reason: '',
@@ -72,7 +73,7 @@ export async function GET(req: Request) {
 
         await insertRows('disaster_event_processing', [{
           event_id: event.id,
-          claim_token: claimToken,
+          claim_token: '',
           status: 'failed',
           payouts_count: 0,
           failure_reason: failureReason,

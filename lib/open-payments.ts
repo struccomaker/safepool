@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createSupabaseAdminClient } from '@/lib/supabase/admin'
 import { normalizeWalletAddress } from '@/lib/wallet-address'
+import { formatOpenPaymentsError } from '@/lib/error-utils'
 
 let cachedClient: Awaited<ReturnType<typeof createAuthenticatedClient>> | null = null
 
@@ -468,8 +469,15 @@ function shouldRunDemoMode(): boolean {
 
   const isProduction = process.env.NODE_ENV === 'production'
   const allowInProduction = process.env.ALLOW_DEMO_MODE_IN_PRODUCTION?.trim().toLowerCase() === 'true'
+  
   if (isProduction && !allowInProduction) {
     throw new Error('DEMO_MODE is disabled in production unless ALLOW_DEMO_MODE_IN_PRODUCTION=true')
+  }
+
+  if (isProduction && allowInProduction) {
+    console.warn('[DEMO MODE] WARNING: Running in production with DEMO_MODE enabled!')
+  } else {
+    console.log('[DEMO MODE] Enabled for development/demo purposes')
   }
 
   return true
@@ -523,32 +531,7 @@ function hasInteraction(grant: unknown): grant is GrantWithInteraction {
     && typeof candidate.continue?.access_token?.value === 'string'
 }
 
-interface OpenPaymentsErrorLike {
-  message?: string
-  description?: string
-  status?: number
-  code?: string
-}
-
-export function formatOpenPaymentsError(err: unknown): string {
-  if (typeof err !== 'object' || err === null) {
-    return 'Internal error'
-  }
-
-  const e = err as OpenPaymentsErrorLike
-  const parts = [
-    e.message,
-    e.description,
-    typeof e.status === 'number' ? `status=${e.status}` : undefined,
-    e.code ? `code=${e.code}` : undefined,
-  ].filter((value): value is string => Boolean(value && value.trim().length > 0))
-
-  if (parts.length === 0) {
-    return 'Internal error'
-  }
-
-  return parts.join(' | ')
-}
+export { formatOpenPaymentsError } from '@/lib/error-utils'
 
 export async function getClient() {
   if (cachedClient) return cachedClient

@@ -50,32 +50,7 @@ interface CreateOneTimeAuthorizationWithQuote extends Record<string, unknown> {
   quoteId?: string
 }
 
-interface OpenPaymentsErrorLike {
-  message?: string
-  description?: string
-  status?: number
-  code?: string
-}
-
-function formatOpenPaymentsError(err: unknown): string {
-  if (typeof err !== 'object' || err === null) {
-    return 'Internal error'
-  }
-
-  const e = err as OpenPaymentsErrorLike
-  const parts = [
-    e.message,
-    e.description,
-    typeof e.status === 'number' ? `status=${e.status}` : undefined,
-    e.code ? `code=${e.code}` : undefined,
-  ].filter((value): value is string => Boolean(value && value.trim().length > 0))
-
-  if (parts.length === 0) {
-    return 'Internal error'
-  }
-
-  return parts.join(' | ')
-}
+import { formatOpenPaymentsError } from '@/lib/error-utils'
 
 export async function POST(req: NextRequest) {
   try {

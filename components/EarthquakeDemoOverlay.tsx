@@ -444,7 +444,14 @@ export default function EarthquakeDemoOverlay() {
           }),
         })
           .then((r) => r.json())
-          .then((res) => console.log('[earthquake] Execute-payout result:', res))
+          .then((res) => {
+            console.log('[earthquake] Execute-payout result:', res)
+            
+            // Handle grant interaction required - redirect to auth
+            if (res.mode === 'interaction_required' && res.redirectUrl) {
+              window.location.href = res.redirectUrl
+            }
+          })
           .catch((err) => console.warn('[earthquake] Execute-payout failed:', err))
       }, 23000)
       timersRef.current = [t1, t2, t3, t4]

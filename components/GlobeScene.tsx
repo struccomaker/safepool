@@ -101,6 +101,52 @@ function isCountryFeature(value: unknown): value is CountryFeature {
   return candidate.type === 'Feature' && candidate.geometry != null && candidate.properties != null
 }
 
+// Ray casting algorithm to check if point is inside polygon
+function isPointInPolygon(lat: number, lng: number, ring: LngLat[]): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    if (((yi > lat) !== (yj > lat)) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+// Check if a point is inside any polygon of a country feature
+function isPointInCountry(lat: number, lng: number, feature: CountryFeature): boolean {
+  const { geometry } = feature
+  if (geometry.type === 'Polygon') {
+    for (const ring of geometry.coordinates) {
+      if (isPointInPolygon(lat, lng, ring)) return true
+    }
+  } else if (geometry.type === 'MultiPolygon') {
+    for (const polygon of geometry.coordinates) {
+      for (const ring of polygon) {
+        if (isPointInPolygon(lat, lng, ring)) return true
+      }
+    }
+  }
+  return false
+}
+
+// Get random coordinates that fall within any country (on land)
+function getRandomLandCoordinates(countries: CountryFeature[]): { lat: number; lng: number } {
+  const MAX_ATTEMPTS = 100
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    const lat = Math.random() * 160 - 80
+    const lng = Math.random() * 360 - 180
+    for (const feature of countries) {
+      if (isPointInCountry(lat, lng, feature)) {
+        return { lat, lng }
+      }
+    }
+  }
+  // Fallback: use Singapore area if no land found (shouldn't happen)
+  return { lat: 1.35, lng: 103.82 }
+}
+
 export interface GlobeCountrySelection {
   code: string
   name: string
@@ -320,6 +366,7 @@ export default function GlobeScene({
   const drilldownTimerRef = useRef<number | null>(null)
   const [size, setSize] = useState({ width: 960, height: 720 })
   const [countries, setCountries] = useState<CountryFeature[]>([])
+  const countriesRef = useRef<CountryFeature[]>([])
   const [hoveredCountryCode, setHoveredCountryCode] = useState<string | null>(null)
   const [selectedCountryCode, setSelectedCountryCode] = useState<string | null>(activeCountryCode)
   const [clickRings, setClickRings] = useState<ClickRing[]>([])
@@ -456,11 +503,11 @@ export default function GlobeScene({
 
         const payload = (await response.json()) as CountriesResponse
         if (!cancelled && Array.isArray(payload.features)) {
-          setCountries(
-            payload.features
-              .filter((feature) => feature?.geometry != null)
-              .map((feature) => normalizeCountryGeometry(feature))
-          )
+          const loaded = payload.features
+            .filter((feature) => feature?.geometry != null)
+            .map((feature) => normalizeCountryGeometry(feature))
+          setCountries(loaded)
+          countriesRef.current = loaded
         }
       } catch {
         if (!cancelled) {
@@ -672,20 +719,25 @@ export default function GlobeScene({
   }, [])
 
   useEffect(() => {
-    const handleSpawnArc = (event: KeyboardEvent) => {
-      if (event.key !== '1') return
-      event.preventDefault()
-      const randLat = () => Math.random() * 160 - 80
-      const randLng = () => Math.random() * 360 - 180
+    const handleDonationArc = () => {
+      // Use random land coordinates for donor location (start point)
+      const { lat: startLat, lng: startLng } = getRandomLandCoordinates(countriesRef.current)
+      
+      // Pick a random disaster epicenter as the target (end)
+      const targetPin = DISASTER_PINS[Math.floor(Math.random() * DISASTER_PINS.length)]
+      // DISASTER_PINS coords are [lng, lat], arc expects [startLat, startLng, endLat, endLng]
+      const endLat = targetPin.coords[1]
+      const endLng = targetPin.coords[0]
+      
       const arcId = ++userArcCounterRef.current
       setUserArcs((prev) => [
         ...prev,
         {
           id: arcId,
-          startLat: randLat(),
-          startLng: randLng(),
-          endLat: randLat(),
-          endLng: randLng(),
+          startLat,
+          startLng,
+          endLat,
+          endLng,
           color: ['#4ade80', '#22c55e'],
         },
       ])
@@ -694,8 +746,8 @@ export default function GlobeScene({
       }, 4000)
     }
 
-    window.addEventListener('keydown', handleSpawnArc)
-    return () => window.removeEventListener('keydown', handleSpawnArc)
+    window.addEventListener('safepool:donation-arc', handleDonationArc)
+    return () => window.removeEventListener('safepool:donation-arc', handleDonationArc)
   }, [])
 
   useEffect(() => {
